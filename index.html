@@ -1,704 +1,802 @@
-import React, { useState, useMemo, useEffect } from 'react';
-import { 
-  ShoppingCart, Package, Users, TrendingUp, Receipt, 
-  Settings, Printer, Share2, Search, Plus, Trash2, 
-  Minus, CreditCard, Wallet, Banknote, CheckCircle, Store, BarChart3, ArrowDownCircle
-} from 'lucide-react';
-
-// --- INITIAL DUMMY DATA (Hanya dipakai jika localStorage kosong) ---
-const defaultProducts = [
-  { id: 1, sku: '899123456', name: 'Kopi Kapal Api', price: 1500, cost: 1000, stock: 50, wholesaleQty: 10, wholesalePrice: 1300 },
-  { id: 2, sku: '899654321', name: 'Indomie Goreng', price: 3000, cost: 2500, stock: 100, wholesaleQty: 40, wholesalePrice: 2800 },
-  { id: 3, sku: '899111222', name: 'Beras Pandan Wangi 5kg', price: 75000, cost: 65000, stock: 10, wholesaleQty: 0, wholesalePrice: 0 },
-];
-
-const defaultCustomers = [
-  { id: 1, name: 'Budi (Bengkel)', phone: '08123456789', debt: 15000 },
-  { id: 2, name: 'Ibu Siti', phone: '08987654321', debt: 0 },
-];
-
-export default function App() {
-  // --- STATES & LOCAL STORAGE SYNC ---
-  // Kita inisialisasi state dengan data dari localStorage jika ada, jika tidak gunakan data default
-  
-  const [activeTab, setActiveTab] = useState('pos');
-  
-  const [products, setProducts] = useState(() => {
-    const saved = localStorage.getItem('warungku_products');
-    return saved ? JSON.parse(saved) : defaultProducts;
-  });
-
-  const [customers, setCustomers] = useState(() => {
-    const saved = localStorage.getItem('warungku_customers');
-    return saved ? JSON.parse(saved) : defaultCustomers;
-  });
-
-  const [transactions, setTransactions] = useState(() => {
-    const saved = localStorage.getItem('warungku_transactions');
-    return saved ? JSON.parse(saved) : [];
-  });
-
-  const [expenses, setExpenses] = useState(() => {
-    const saved = localStorage.getItem('warungku_expenses');
-    return saved ? JSON.parse(saved) : [];
-  });
-
-  const [storeInfo, setStoreInfo] = useState(() => {
-    const saved = localStorage.getItem('warungku_storeinfo');
-    return saved ? JSON.parse(saved) : { name: 'WarungKu Sukses', promo: 'Terima kasih telah berbelanja! Dapatkan diskon 5% untuk pembelian berikutnya.' };
-  });
-
-  // Efek untuk menyimpan ke localStorage setiap kali state berubah
-  useEffect(() => { localStorage.setItem('warungku_products', JSON.stringify(products)); }, [products]);
-  useEffect(() => { localStorage.setItem('warungku_customers', JSON.stringify(customers)); }, [customers]);
-  useEffect(() => { localStorage.setItem('warungku_transactions', JSON.stringify(transactions)); }, [transactions]);
-  useEffect(() => { localStorage.setItem('warungku_expenses', JSON.stringify(expenses)); }, [expenses]);
-  useEffect(() => { localStorage.setItem('warungku_storeinfo', JSON.stringify(storeInfo)); }, [storeInfo]);
-
-  // POS States (Tidak perlu disimpan di local storage karena bersifat sementara per sesi kasir)
-  const [cart, setCart] = useState([]);
-  const [searchSKU, setSearchSKU] = useState('');
-  const [discountPercent, setDiscountPercent] = useState(0);
-  const [selectedCustomer, setSelectedCustomer] = useState(null);
-  const [paymentMethod, setPaymentMethod] = useState('cash');
-  const [receiptData, setReceiptData] = useState(null);
-
-  // Forms State
-  const [showAddProduct, setShowAddProduct] = useState(false);
-  
-  // --- UTILS ---
-  const formatRp = (num) => new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(num || 0);
-  const generateId = () => Math.random().toString(36).substr(2, 9);
-
-  // --- POS LOGIC ---
-  const getProductPrice = (product, qty) => {
-    if (product.wholesaleQty > 0 && qty >= product.wholesaleQty) {
-      return product.wholesalePrice;
-    }
-    return product.price;
-  };
-
-  const addToCart = (product) => {
-    setCart(prev => {
-      const existing = prev.find(item => item.id === product.id);
-      if (existing) {
-        if (existing.qty >= product.stock) {
-          alert('Stok tidak mencukupi!');
-          return prev;
-        }
-        return prev.map(item => 
-          item.id === product.id 
-            ? { ...item, qty: item.qty + 1, activePrice: getProductPrice(product, item.qty + 1) } 
-            : item
-        );
-      }
-      return [...prev, { ...product, qty: 1, activePrice: getProductPrice(product, 1) }];
-    });
-  };
-
-  const updateCartQty = (id, delta) => {
-    setCart(prev => prev.map(item => {
-      if (item.id === id) {
-        const newQty = item.qty + delta;
-        if (newQty <= 0) return null;
-        if (newQty > item.stock) {
-          alert('Stok tidak mencukupi!');
-          return item;
-        }
-        return { ...item, qty: newQty, activePrice: getProductPrice(item, newQty) };
-      }
-      return item;
-    }).filter(Boolean));
-  };
-
-  const handleBarcodeScan = (e) => {
-    e.preventDefault();
-    const product = products.find(p => p.sku === searchSKU || p.name.toLowerCase().includes(searchSKU.toLowerCase()));
-    if (product) {
-      addToCart(product);
-      setSearchSKU('');
-    } else {
-      alert('Produk tidak ditemukan!');
-    }
-  };
-
-  const cartSubtotal = cart.reduce((sum, item) => sum + (item.activePrice * item.qty), 0);
-  const cartDiscount = (cartSubtotal * discountPercent) / 100;
-  const cartTotal = cartSubtotal - cartDiscount;
-
-  const handleCheckout = () => {
-    if (cart.length === 0) return;
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>WarungKu POS & Manajemen</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- FontAwesome untuk Ikon -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     
-    // Validasi Kasbon
-    if (paymentMethod === 'kasbon' && !selectedCustomer) {
-      alert('Pilih pelanggan terlebih dahulu untuk transaksi Kasbon/Hutang!');
-      return;
-    }
-
-    const totalCost = cart.reduce((sum, item) => sum + (item.cost * item.qty), 0);
-    const profit = cartTotal - totalCost;
-
-    const newTrx = {
-      id: `TRX-${Date.now()}`,
-      date: new Date().toISOString(),
-      items: [...cart],
-      subtotal: cartSubtotal,
-      discount: cartDiscount,
-      total: cartTotal,
-      cost: totalCost,
-      profit: profit,
-      method: paymentMethod,
-      customerId: selectedCustomer?.id || null
-    };
-
-    // Update Stock
-    setProducts(prev => prev.map(p => {
-      const cartItem = cart.find(c => c.id === p.id);
-      return cartItem ? { ...p, stock: p.stock - cartItem.qty } : p;
-    }));
-
-    // Update Debt if Kasbon
-    if (paymentMethod === 'kasbon') {
-      setCustomers(prev => prev.map(c => 
-        c.id === selectedCustomer.id ? { ...c, debt: c.debt + cartTotal } : c
-      ));
-    }
-
-    setTransactions([newTrx, ...transactions]);
-    setReceiptData(newTrx); // Show receipt modal
-    
-    // Reset Cart
-    setCart([]);
-    setDiscountPercent(0);
-    setSelectedCustomer(null);
-    setPaymentMethod('cash');
-  };
-
-  // --- CATALOG SHARE ---
-  const shareCatalogWA = () => {
-    const text = `*Katalog ${storeInfo.name}*\n\n` + products.map(p => 
-      `- ${p.name}: ${formatRp(p.price)}` + 
-      (p.wholesaleQty > 0 ? ` (Grosir: ${formatRp(p.wholesalePrice)} min ${p.wholesaleQty})` : '')
-    ).join('\n') + `\n\nYuk pesan sekarang!`;
-    window.open(`https://wa.me/?text=${encodeURIComponent(text)}`);
-  };
-
-  // --- ANALYTICS ---
-  const analytics = useMemo(() => {
-    const totalOmzet = transactions.reduce((sum, t) => sum + t.total, 0);
-    const totalProfit = transactions.reduce((sum, t) => sum + t.profit, 0);
-    const totalExpense = expenses.reduce((sum, e) => sum + e.amount, 0);
-    const netProfit = totalProfit - totalExpense;
-    const totalPiutang = customers.reduce((sum, c) => sum + c.debt, 0);
-
-    return { totalOmzet, totalProfit, totalExpense, netProfit, totalPiutang };
-  }, [transactions, expenses, customers]);
-
-
-  // ================= RENDERERS =================
-
-  const renderPOS = () => (
-    <div className="flex flex-col lg:flex-row gap-6 h-[calc(100vh-6rem)]">
-      {/* Kiri: Katalog & Pencarian */}
-      <div className="flex-1 flex flex-col gap-4">
-        <form onSubmit={handleBarcodeScan} className="flex gap-2">
-          <div className="relative flex-1">
-            <Search className="absolute left-3 top-3 text-gray-400" size={20} />
-            <input 
-              type="text" 
-              placeholder="Scan Barcode (SKU) atau Cari Nama Produk + Enter..." 
-              value={searchSKU}
-              onChange={(e) => setSearchSKU(e.target.value)}
-              className="w-full pl-10 pr-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-blue-500 outline-none shadow-sm"
-              autoFocus
-            />
-          </div>
-          <button type="submit" className="bg-blue-600 text-white px-6 rounded-xl hover:bg-blue-700 font-medium shadow-sm transition-all">
-            Cari
-          </button>
-        </form>
-
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 overflow-y-auto pb-24">
-          {products.filter(p => p.name.toLowerCase().includes(searchSKU.toLowerCase()) || p.sku.includes(searchSKU)).map(product => (
-            <div key={product.id} onClick={() => addToCart(product)} 
-                 className={`bg-white p-4 rounded-2xl shadow-sm border ${product.stock <= 0 ? 'border-red-200 opacity-60' : 'border-gray-100 hover:border-blue-400 cursor-pointer transition-all'}`}>
-              <div className="h-20 bg-gray-50 rounded-lg flex items-center justify-center mb-3">
-                <Package className="text-gray-300" size={32} />
-              </div>
-              <h3 className="font-semibold text-gray-800 line-clamp-2 text-sm h-10">{product.name}</h3>
-              <p className="text-blue-600 font-bold mt-1">{formatRp(product.price)}</p>
-              <div className="flex justify-between items-center mt-2 text-xs">
-                <span className="text-gray-500">Stok: {product.stock}</span>
-                {product.wholesaleQty > 0 && (
-                  <span className="bg-orange-100 text-orange-700 px-2 py-1 rounded">Grosir</span>
-                )}
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* Kanan: Keranjang */}
-      <div className="w-full lg:w-96 bg-white rounded-2xl shadow-lg border border-gray-100 flex flex-col h-full">
-        <div className="p-4 border-b border-gray-100 flex justify-between items-center bg-gray-50 rounded-t-2xl">
-          <h2 className="font-bold text-lg flex items-center gap-2"><ShoppingCart size={20}/> Keranjang</h2>
-          <span className="bg-blue-100 text-blue-700 px-3 py-1 rounded-full text-sm font-semibold">{cart.length} Item</span>
-        </div>
-
-        <div className="flex-1 overflow-y-auto p-4 space-y-4">
-          {cart.length === 0 ? (
-            <div className="h-full flex flex-col items-center justify-center text-gray-400">
-              <ShoppingCart size={48} className="mb-4 opacity-50" />
-              <p>Keranjang kosong</p>
-            </div>
-          ) : (
-            cart.map(item => (
-              <div key={item.id} className="flex justify-between items-center pb-4 border-b border-gray-50">
-                <div className="flex-1">
-                  <h4 className="font-medium text-sm text-gray-800">{item.name}</h4>
-                  <p className="text-blue-600 font-semibold text-sm">{formatRp(item.activePrice)}</p>
-                  {item.activePrice < item.price && <span className="text-[10px] bg-orange-100 text-orange-600 px-1 rounded">Harga Grosir</span>}
-                </div>
-                <div className="flex items-center gap-3">
-                  <button onClick={() => updateCartQty(item.id, -1)} className="p-1 rounded-full bg-gray-100 hover:bg-gray-200"><Minus size={14}/></button>
-                  <span className="font-semibold w-6 text-center">{item.qty}</span>
-                  <button onClick={() => updateCartQty(item.id, 1)} className="p-1 rounded-full bg-gray-100 hover:bg-gray-200"><Plus size={14}/></button>
-                </div>
-              </div>
-            ))
-          )}
-        </div>
-
-        <div className="p-4 border-t border-gray-100 bg-gray-50 space-y-4 rounded-b-2xl">
-          {/* Diskon & Pelanggan */}
-          <div className="flex gap-2">
-            <div className="flex-1">
-              <label className="text-xs text-gray-500 font-medium">Diskon (%)</label>
-              <input type="number" value={discountPercent} onChange={e => setDiscountPercent(e.target.value)} min="0" max="100" className="w-full p-2 text-sm border rounded-lg mt-1" />
-            </div>
-            <div className="flex-[2]">
-              <label className="text-xs text-gray-500 font-medium">Pelanggan</label>
-              <select className="w-full p-2 text-sm border rounded-lg mt-1" onChange={e => setSelectedCustomer(customers.find(c => c.id == e.target.value) || null)}>
-                <option value="">-- Umum --</option>
-                {customers.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-              </select>
-            </div>
-          </div>
-
-          <div className="space-y-2 text-sm">
-            <div className="flex justify-between"><span className="text-gray-500">Subtotal</span><span>{formatRp(cartSubtotal)}</span></div>
-            {cartDiscount > 0 && <div className="flex justify-between text-rose-500"><span>Diskon</span><span>-{formatRp(cartDiscount)}</span></div>}
-            <div className="flex justify-between font-bold text-lg pt-2 border-t border-gray-200">
-              <span>Total</span><span className="text-blue-600">{formatRp(cartTotal)}</span>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-3 gap-2 mt-2">
-            <button onClick={() => setPaymentMethod('cash')} className={`py-2 rounded-lg text-sm font-semibold flex flex-col items-center gap-1 ${paymentMethod === 'cash' ? 'bg-emerald-500 text-white' : 'bg-gray-200 text-gray-600'}`}><Banknote size={16}/> Cash</button>
-            <button onClick={() => setPaymentMethod('qris')} className={`py-2 rounded-lg text-sm font-semibold flex flex-col items-center gap-1 ${paymentMethod === 'qris' ? 'bg-blue-500 text-white' : 'bg-gray-200 text-gray-600'}`}><CreditCard size={16}/> QRIS</button>
-            <button onClick={() => setPaymentMethod('kasbon')} className={`py-2 rounded-lg text-sm font-semibold flex flex-col items-center gap-1 ${paymentMethod === 'kasbon' ? 'bg-rose-500 text-white' : 'bg-gray-200 text-gray-600'}`}><Wallet size={16}/> Kasbon</button>
-          </div>
-
-          <button onClick={handleCheckout} disabled={cart.length === 0} className="w-full py-3 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 text-white font-bold rounded-xl shadow-md transition-all text-lg mt-2">
-            Bayar Sekarang
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-
-  const renderProducts = () => (
-    <div className="space-y-6">
-      <div className="flex justify-between items-center">
-        <h2 className="text-2xl font-bold text-gray-800 flex items-center gap-2"><Package className="text-blue-600" /> Kelola Produk & Stok</h2>
-        <div className="flex gap-2">
-          <button onClick={shareCatalogWA} className="bg-emerald-100 text-emerald-700 px-4 py-2 rounded-xl flex items-center gap-2 hover:bg-emerald-200 font-medium">
-            <Share2 size={18}/> Share Katalog WA
-          </button>
-          <button onClick={() => setShowAddProduct(!showAddProduct)} className="bg-blue-600 text-white px-4 py-2 rounded-xl flex items-center gap-2 hover:bg-blue-700 font-medium">
-            <Plus size={18}/> Tambah Produk
-          </button>
-        </div>
-      </div>
-
-      {showAddProduct && (
-        <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
-          <h3 className="font-bold mb-4">Tambah Produk Baru</h3>
-          <form onSubmit={(e) => {
-            e.preventDefault();
-            const fd = new FormData(e.target);
-            const newProd = {
-              id: Date.now(),
-              sku: fd.get('sku') || generateId(),
-              name: fd.get('name'),
-              price: Number(fd.get('price')),
-              cost: Number(fd.get('cost')),
-              stock: Number(fd.get('stock')),
-              wholesaleQty: Number(fd.get('wQty')),
-              wholesalePrice: Number(fd.get('wPrice'))
-            };
-            setProducts([newProd, ...products]);
-            setShowAddProduct(false);
-          }} className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-            <input name="sku" placeholder="SKU / Barcode" className="border p-2 rounded-lg" />
-            <input name="name" placeholder="Nama Produk*" required className="border p-2 rounded-lg" />
-            <input name="price" type="number" placeholder="Harga Jual*" required className="border p-2 rounded-lg" />
-            <input name="cost" type="number" placeholder="Modal/HPP*" required className="border p-2 rounded-lg" />
-            <input name="stock" type="number" placeholder="Stok Awal*" required className="border p-2 rounded-lg" />
-            <div className="border p-2 rounded-lg bg-orange-50 col-span-1 lg:col-span-3 flex gap-4 items-center">
-              <span className="text-sm font-medium text-orange-800">Seting Grosir (Opsional):</span>
-              <input name="wQty" type="number" placeholder="Min Qty" className="border p-1 rounded w-24 text-sm" defaultValue="0" />
-              <input name="wPrice" type="number" placeholder="Harga Grosir" className="border p-1 rounded w-32 text-sm" defaultValue="0" />
-            </div>
-            <div className="col-span-1 md:col-span-2 lg:col-span-4 flex justify-end">
-              <button type="submit" className="bg-blue-600 text-white px-6 py-2 rounded-lg font-medium">Simpan</button>
-            </div>
-          </form>
-        </div>
-      )}
-
-      <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
-        <table className="w-full text-left border-collapse">
-          <thead>
-            <tr className="bg-gray-50 border-b">
-              <th className="p-4 font-semibold text-gray-600">SKU</th>
-              <th className="p-4 font-semibold text-gray-600">Nama Produk</th>
-              <th className="p-4 font-semibold text-gray-600">Stok</th>
-              <th className="p-4 font-semibold text-gray-600">Modal</th>
-              <th className="p-4 font-semibold text-gray-600">Jual</th>
-              <th className="p-4 font-semibold text-gray-600">Grosir</th>
-              <th className="p-4"></th>
-            </tr>
-          </thead>
-          <tbody>
-            {products.map(p => (
-              <tr key={p.id} className="border-b border-gray-50 hover:bg-gray-50">
-                <td className="p-4 text-sm text-gray-500">{p.sku}</td>
-                <td className="p-4 font-medium">{p.name}</td>
-                <td className="p-4">
-                  <span className={`px-2 py-1 rounded text-sm font-medium ${p.stock < 10 ? 'bg-red-100 text-red-700' : 'bg-emerald-100 text-emerald-700'}`}>
-                    {p.stock}
-                  </span>
-                </td>
-                <td className="p-4 text-gray-500">{formatRp(p.cost)}</td>
-                <td className="p-4 text-blue-600 font-semibold">{formatRp(p.price)}</td>
-                <td className="p-4 text-sm text-gray-500">
-                  {p.wholesaleQty > 0 ? `Min ${p.wholesaleQty}: ${formatRp(p.wholesalePrice)}` : '-'}
-                </td>
-                <td className="p-4 text-right">
-                  <button onClick={() => {
-                      if(window.confirm(`Yakin ingin menghapus ${p.name}?`)) {
-                        setProducts(products.filter(item => item.id !== p.id));
-                      }
-                  }} className="text-red-400 hover:text-red-600"><Trash2 size={18}/></button>
-                </td>
-              </tr>
-            ))}
-            {products.length === 0 && (
-                <tr>
-                    <td colSpan="7" className="p-8 text-center text-gray-500">Belum ada produk. Silakan tambah produk terlebih dahulu.</td>
-                </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  );
-
-  const renderCustomers = () => (
-    <div className="space-y-6">
-      <h2 className="text-2xl font-bold text-gray-800 flex items-center gap-2"><Users className="text-blue-600" /> Pelanggan & Catatan Hutang</h2>
-      
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        {/* Tambah Pelanggan */}
-        <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
-          <h3 className="font-bold mb-4 flex items-center gap-2"><Plus size={18}/> Tambah Pelanggan</h3>
-          <form onSubmit={(e) => {
-            e.preventDefault();
-            const fd = new FormData(e.target);
-            setCustomers([...customers, { id: Date.now(), name: fd.get('name'), phone: fd.get('phone'), debt: 0 }]);
-            e.target.reset();
-          }} className="space-y-4">
-            <input name="name" placeholder="Nama Pelanggan" required className="w-full border p-2 rounded-lg" />
-            <input name="phone" placeholder="No. WhatsApp" className="w-full border p-2 rounded-lg" />
-            <button type="submit" className="w-full bg-blue-600 text-white py-2 rounded-lg font-medium">Simpan Pelanggan</button>
-          </form>
-        </div>
-
-        {/* Daftar Pelanggan */}
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
-          <div className="p-4 bg-gray-50 border-b font-bold">Daftar Pelanggan</div>
-          <ul className="divide-y divide-gray-100 max-h-96 overflow-y-auto">
-            {customers.map(c => (
-              <li key={c.id} className="p-4 flex justify-between items-center hover:bg-gray-50">
-                <div>
-                  <h4 className="font-semibold">{c.name}</h4>
-                  <p className="text-xs text-gray-500">{c.phone}</p>
-                </div>
-                <div className="text-right flex items-center gap-4">
-                  {c.debt > 0 ? (
-                    <div>
-                      <p className="text-xs text-gray-500">Sisa Kasbon</p>
-                      <p className="text-rose-600 font-bold">{formatRp(c.debt)}</p>
-                    </div>
-                  ) : (
-                    <span className="text-xs bg-emerald-100 text-emerald-700 px-2 py-1 rounded">Lunas</span>
-                  )}
-                  {c.debt > 0 && (
-                    <button onClick={() => {
-                      const pay = prompt(`Masukkan nominal pembayaran hutang untuk ${c.name} (Max: ${c.debt}):`);
-                      if (pay && !isNaN(pay)) {
-                        setCustomers(customers.map(cust => cust.id === c.id ? { ...cust, debt: Math.max(0, cust.debt - Number(pay)) } : cust));
-                      }
-                    }} className="bg-emerald-500 text-white px-3 py-1 rounded text-sm hover:bg-emerald-600">Bayar</button>
-                  )}
-                </div>
-              </li>
-            ))}
-             {customers.length === 0 && (
-                <li className="p-8 text-center text-gray-500">Belum ada data pelanggan.</li>
-            )}
-          </ul>
-        </div>
-      </div>
-    </div>
-  );
-
-  const renderAnalytics = () => (
-    <div className="space-y-6">
-      <div className="flex justify-between items-center">
-        <h2 className="text-2xl font-bold text-gray-800 flex items-center gap-2"><BarChart3 className="text-blue-600" /> Analisis WarungKu</h2>
-        <button onClick={() => {
-            if(window.confirm('HATI-HATI! Yakin ingin menghapus SEMUA riwayat transaksi dan pengeluaran? (Data produk dan pelanggan akan tetap aman)')) {
-                setTransactions([]);
-                setExpenses([]);
-                alert('Data riwayat berhasil direset.');
-            }
-        }} className="text-red-500 text-sm hover:bg-red-50 px-3 py-1 rounded">Reset Riwayat</button>
-      </div>
-      
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
-          <p className="text-gray-500 text-sm font-medium mb-1">Total Omzet</p>
-          <h3 className="text-2xl font-bold text-gray-800">{formatRp(analytics.totalOmzet)}</h3>
-        </div>
-        <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
-          <p className="text-gray-500 text-sm font-medium mb-1">Laba Kotor</p>
-          <h3 className="text-2xl font-bold text-emerald-600">{formatRp(analytics.totalProfit)}</h3>
-        </div>
-        <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
-          <p className="text-gray-500 text-sm font-medium mb-1">Pengeluaran</p>
-          <h3 className="text-2xl font-bold text-rose-600">{formatRp(analytics.totalExpense)}</h3>
-        </div>
-        <div className="bg-white p-6 rounded-2xl border border-blue-100 bg-blue-50 shadow-sm">
-          <p className="text-blue-800 text-sm font-medium mb-1">Laba Bersih</p>
-          <h3 className="text-2xl font-bold text-blue-700">{formatRp(analytics.netProfit)}</h3>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        {/* Catat Pengeluaran */}
-        <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
-          <h3 className="font-bold mb-4 flex items-center gap-2 text-rose-600"><ArrowDownCircle size={18}/> Catat Pengeluaran Warung</h3>
-          <form onSubmit={(e) => {
-            e.preventDefault();
-            const fd = new FormData(e.target);
-            setExpenses([{ id: Date.now(), desc: fd.get('desc'), amount: Number(fd.get('amount')), date: new Date().toISOString() }, ...expenses]);
-            e.target.reset();
-          }} className="flex gap-2">
-            <input name="desc" placeholder="Keterangan (Makan, Listrik, dll)" required className="flex-[2] border p-2 rounded-lg text-sm" />
-            <input name="amount" type="number" placeholder="Rp" required className="flex-1 border p-2 rounded-lg text-sm" />
-            <button type="submit" className="bg-rose-500 text-white px-4 rounded-lg font-medium text-sm">Catat</button>
-          </form>
-          
-          <div className="mt-4 space-y-2">
-            {expenses.slice(0, 5).map(e => (
-              <div key={e.id} className="flex justify-between text-sm border-b pb-2">
-                <span className="text-gray-600">{e.desc}</span>
-                <span className="text-rose-600 font-semibold">-{formatRp(e.amount)}</span>
-              </div>
-            ))}
-             {expenses.length === 0 && <p className="text-sm text-gray-400">Belum ada data pengeluaran.</p>}
-          </div>
-        </div>
-
-        {/* Uang Mengendap / Piutang */}
-        <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
-          <h3 className="font-bold mb-4 flex items-center gap-2 text-orange-600"><Wallet size={18}/> Total Uang di Luar (Kasbon)</h3>
-          <h2 className="text-4xl font-black text-orange-500 mb-2">{formatRp(analytics.totalPiutang)}</h2>
-          <p className="text-sm text-gray-500">Segera tagih pelanggan dengan hutang terbanyak agar arus kas lancar.</p>
-        </div>
-      </div>
-    </div>
-  );
-
-  const renderSettings = () => (
-      <div className="space-y-6 max-w-2xl">
-          <h2 className="text-2xl font-bold text-gray-800 flex items-center gap-2"><Settings className="text-blue-600" /> Pengaturan Toko</h2>
-          <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
-              <form onSubmit={(e) => {
-                  e.preventDefault();
-                  const fd = new FormData(e.target);
-                  setStoreInfo({
-                      name: fd.get('storeName'),
-                      promo: fd.get('storePromo')
-                  });
-                  alert('Pengaturan berhasil disimpan!');
-              }} className="space-y-4">
-                  <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Nama Toko / Warung</label>
-                      <input name="storeName" defaultValue={storeInfo.name} required className="w-full border p-2 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" />
-                  </div>
-                  <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Pesan Struk / Promo</label>
-                      <textarea name="storePromo" defaultValue={storeInfo.promo} rows="3" className="w-full border p-2 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"></textarea>
-                  </div>
-                  <button type="submit" className="bg-blue-600 text-white px-6 py-2 rounded-lg font-medium">Simpan Perubahan</button>
-              </form>
-          </div>
-
-          <div className="bg-red-50 p-6 rounded-2xl border border-red-200">
-              <h3 className="font-bold text-red-700 mb-2">Zona Bahaya (Hard Reset)</h3>
-              <p className="text-sm text-red-600 mb-4">Aksi ini akan menghapus <strong>seluruh data</strong> (Produk, Pelanggan, Transaksi, Pengeluaran) dan mengembalikan aplikasi ke kondisi pabrik.</p>
-              <button onClick={() => {
-                  if(window.confirm('PERINGATAN KERAS! Apakah Anda yakin ingin menghapus SEMUA DATA di aplikasi ini? Aksi ini tidak dapat dibatalkan.')) {
-                      localStorage.clear();
-                      window.location.reload();
-                  }
-              }} className="bg-red-600 text-white px-4 py-2 rounded-lg font-medium">Hapus Semua Data Aplikasi</button>
-          </div>
-      </div>
-  )
-
-  // --- RECEIPT MODAL ---
-  const renderReceiptModal = () => {
-    if (!receiptData) return null;
-    return (
-      <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-        <div className="bg-white rounded-2xl max-w-md w-full shadow-2xl overflow-hidden print:w-full print:shadow-none">
-          {/* Bagian ini akan dicetak */}
-          <div id="printable-receipt" className="p-6 bg-white text-gray-800">
-            <div className="text-center mb-6 border-b-2 border-dashed border-gray-200 pb-4">
-              <Store className="mx-auto mb-2 text-gray-800" size={32} />
-              <h2 className="text-2xl font-black">{storeInfo.name}</h2>
-              <p className="text-sm text-gray-500">{new Date(receiptData.date).toLocaleString('id-ID')}</p>
-              <p className="text-xs mt-1 bg-gray-100 inline-block px-2 py-1 rounded uppercase tracking-wider">{receiptData.id} • {receiptData.method}</p>
-            </div>
-            
-            <div className="space-y-3 mb-6">
-              {receiptData.items.map(item => (
-                <div key={item.id} className="flex justify-between text-sm">
-                  <div>
-                    <p className="font-semibold">{item.name}</p>
-                    <p className="text-gray-500">{item.qty} x {formatRp(item.activePrice)}</p>
-                  </div>
-                  <div className="font-bold">{formatRp(item.qty * item.activePrice)}</div>
-                </div>
-              ))}
-            </div>
-
-            <div className="border-t-2 border-dashed border-gray-200 pt-4 space-y-2 text-sm">
-              <div className="flex justify-between"><span>Subtotal</span><span>{formatRp(receiptData.subtotal)}</span></div>
-              {receiptData.discount > 0 && <div className="flex justify-between text-rose-500"><span>Diskon</span><span>-{formatRp(receiptData.discount)}</span></div>}
-              <div className="flex justify-between text-lg font-black pt-2"><span>TOTAL</span><span>{formatRp(receiptData.total)}</span></div>
-            </div>
-
-            {receiptData.customerId && (
-              <div className="mt-4 p-3 bg-gray-50 rounded-lg text-center text-sm">
-                Pelanggan: <span className="font-bold">{customers.find(c => c.id === receiptData.customerId)?.name}</span>
-                {receiptData.method === 'kasbon' && <p className="text-rose-600 font-bold mt-1">Status: KASBON (BELUM LUNAS)</p>}
-              </div>
-            )}
-
-            <div className="text-center mt-8 text-sm text-gray-500 italic">
-              {storeInfo.promo}
-            </div>
-          </div>
-
-          {/* Tombol Aksi (Tidak dicetak) */}
-          <div className="p-4 bg-gray-50 flex gap-3 print:hidden">
-            <button onClick={() => {
-              window.print();
-            }} className="flex-1 bg-gray-800 text-white py-3 rounded-xl font-bold flex items-center justify-center gap-2">
-              <Printer size={18}/> Cetak Struk
-            </button>
-            <button onClick={() => setReceiptData(null)} className="flex-1 bg-blue-600 text-white py-3 rounded-xl font-bold flex items-center justify-center gap-2">
-              <CheckCircle size={18}/> Selesai
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  };
-
-  // --- MAIN LAYOUT ---
-  const navItems = [
-    { id: 'pos', icon: <ShoppingCart size={20}/>, label: 'Kasir (POS)' },
-    { id: 'products', icon: <Package size={20}/>, label: 'Produk' },
-    { id: 'customers', icon: <Users size={20}/>, label: 'Pelanggan' },
-    { id: 'analytics', icon: <TrendingUp size={20}/>, label: 'Analisis' },
-    { id: 'settings', icon: <Settings size={20}/>, label: 'Pengaturan' },
-  ];
-
-  return (
-    <div className="min-h-screen bg-gray-100 flex flex-col md:flex-row font-sans">
-      {/* Styles for printing */}
-      <style>{`
+    <style>
+        /* Sembunyikan elemen tertentu saat mencetak struk */
         @media print {
-          body * { visibility: hidden; }
-          #printable-receipt, #printable-receipt * { visibility: visible; }
-          #printable-receipt { position: absolute; left: 0; top: 0; width: 100%; max-width: 80mm; padding: 0; margin: 0; }
+            body * { visibility: hidden; }
+            #receipt-modal, #receipt-modal * { visibility: visible; }
+            #receipt-modal { position: absolute; left: 0; top: 0; width: 100%; max-width: 80mm; padding: 0; margin: 0; background: white; box-shadow: none;}
+            .no-print { display: none !important; }
         }
-      `}</style>
+        
+        /* Smooth scrolling */
+        .scroll-smooth { scroll-behavior: smooth; }
+        
+        /* Hide scrollbar for cleaner UI */
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+    </style>
+</head>
+<body class="bg-gray-100 text-gray-800 font-sans h-screen flex flex-col md:flex-row overflow-hidden">
 
-      {/* Sidebar (Desktop) */}
-      <aside className="hidden md:flex flex-col w-64 bg-gray-900 text-white shadow-xl">
-        <div className="p-6 border-b border-gray-800 flex items-center gap-3">
-          <div className="bg-blue-600 p-2 rounded-lg"><Store size={24}/></div>
-          <div>
-            <h1 className="font-bold text-lg leading-tight truncate w-40">{storeInfo.name}</h1>
-            <p className="text-xs text-gray-400">Sistem POS Warung</p>
-          </div>
+    <!-- SIDEBAR (Desktop) -->
+    <aside class="hidden md:flex flex-col w-64 bg-gray-900 text-white shadow-xl h-full z-20">
+        <div class="p-6 border-b border-gray-800 flex items-center gap-3">
+            <div class="bg-blue-600 p-2 rounded-lg"><i class="fa-solid fa-store text-xl"></i></div>
+            <div>
+                <h1 id="sidebar-store-name" class="font-bold text-lg leading-tight truncate w-40">WarungKu</h1>
+                <p class="text-xs text-gray-400">Sistem POS Warung</p>
+            </div>
         </div>
-        <nav className="flex-1 p-4 space-y-2">
-          {navItems.map(item => (
-            <button key={item.id} onClick={() => setActiveTab(item.id)} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === item.id ? 'bg-blue-600 text-white font-medium' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}`}>
-              {item.icon} {item.label}
-            </button>
-          ))}
+        <nav class="flex-1 p-4 space-y-2">
+            <button onclick="switchTab('pos')" id="tab-pos" class="nav-btn w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all bg-blue-600 text-white font-medium"><i class="fa-solid fa-cart-shopping w-5"></i> Kasir (POS)</button>
+            <button onclick="switchTab('products')" id="tab-products" class="nav-btn w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all text-gray-400 hover:bg-gray-800 hover:text-white"><i class="fa-solid fa-box w-5"></i> Produk</button>
+            <button onclick="switchTab('customers')" id="tab-customers" class="nav-btn w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all text-gray-400 hover:bg-gray-800 hover:text-white"><i class="fa-solid fa-users w-5"></i> Pelanggan</button>
+            <button onclick="switchTab('analytics')" id="tab-analytics" class="nav-btn w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all text-gray-400 hover:bg-gray-800 hover:text-white"><i class="fa-solid fa-chart-line w-5"></i> Analisis</button>
+            <button onclick="switchTab('settings')" id="tab-settings" class="nav-btn w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all text-gray-400 hover:bg-gray-800 hover:text-white"><i class="fa-solid fa-gear w-5"></i> Pengaturan</button>
         </nav>
-      </aside>
+    </aside>
 
-      {/* Main Content */}
-      <main className="flex-1 p-4 md:p-8 h-screen overflow-y-auto pb-24 md:pb-8">
-        {/* Mobile Header */}
-        <div className="md:hidden flex items-center justify-between mb-6 bg-white p-4 rounded-2xl shadow-sm">
-          <div className="flex items-center gap-3">
-            <div className="bg-blue-600 p-2 rounded-lg text-white"><Store size={24}/></div>
-            <h1 className="font-bold text-lg truncate w-48">{storeInfo.name}</h1>
-          </div>
+    <!-- KONTEN UTAMA -->
+    <main class="flex-1 h-full overflow-y-auto relative pb-20 md:pb-0">
+        <!-- Header Mobile -->
+        <div class="md:hidden flex items-center gap-3 bg-white p-4 shadow-sm sticky top-0 z-10">
+            <div class="bg-blue-600 p-2 rounded-lg text-white"><i class="fa-solid fa-store"></i></div>
+            <h1 id="mobile-store-name" class="font-bold text-lg truncate flex-1">WarungKu</h1>
         </div>
 
-        {activeTab === 'pos' && renderPOS()}
-        {activeTab === 'products' && renderProducts()}
-        {activeTab === 'customers' && renderCustomers()}
-        {activeTab === 'analytics' && renderAnalytics()}
-        {activeTab === 'settings' && renderSettings()}
-      </main>
+        <div class="p-4 md:p-8 h-full">
+            
+            <!-- HALAMAN KASIR (POS) -->
+            <section id="sec-pos" class="h-full flex flex-col lg:flex-row gap-6">
+                <!-- Katalog Produk -->
+                <div class="flex-1 flex flex-col gap-4 h-full">
+                    <form onsubmit="handleBarcodeScan(event)" class="flex gap-2">
+                        <div class="relative flex-1">
+                            <i class="fa-solid fa-magnifying-glass absolute left-3 top-3.5 text-gray-400"></i>
+                            <input type="text" id="search-sku" placeholder="Scan Barcode (SKU) atau Cari Nama + Enter" class="w-full pl-10 pr-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-blue-500 outline-none shadow-sm">
+                        </div>
+                        <button type="submit" class="bg-blue-600 text-white px-6 rounded-xl hover:bg-blue-700 font-medium shadow-sm transition-all">Cari</button>
+                    </form>
+                    <div id="pos-product-grid" class="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-4 overflow-y-auto no-scrollbar pb-32 lg:pb-0 h-full content-start">
+                        <!-- Render Produk JS -->
+                    </div>
+                </div>
 
-      {/* Bottom Nav (Mobile) */}
-      <nav className="md:hidden fixed bottom-0 w-full bg-white border-t border-gray-200 flex justify-around p-3 z-40 pb-safe">
-        {navItems.map(item => (
-          <button key={item.id} onClick={() => setActiveTab(item.id)} className={`flex flex-col items-center gap-1 p-2 ${activeTab === item.id ? 'text-blue-600' : 'text-gray-400'}`}>
-            {item.icon}
-            <span className="text-[10px] font-medium">{item.label}</span>
-          </button>
-        ))}
-      </nav>
+                <!-- Keranjang -->
+                <div class="w-full lg:w-96 bg-white rounded-2xl shadow-lg border border-gray-100 flex flex-col lg:h-full lg:max-h-full max-h-[60vh]">
+                    <div class="p-4 border-b border-gray-100 flex justify-between items-center bg-gray-50 rounded-t-2xl">
+                        <h2 class="font-bold text-lg"><i class="fa-solid fa-cart-shopping mr-2"></i> Keranjang</h2>
+                        <span id="cart-count" class="bg-blue-100 text-blue-700 px-3 py-1 rounded-full text-sm font-semibold">0 Item</span>
+                    </div>
+                    
+                    <div id="cart-items" class="flex-1 overflow-y-auto p-4 space-y-4">
+                        <!-- Render Cart JS -->
+                        <div class="h-full flex flex-col items-center justify-center text-gray-400 opacity-50">
+                            <i class="fa-solid fa-cart-shopping text-4xl mb-4"></i>
+                            <p>Keranjang kosong</p>
+                        </div>
+                    </div>
 
-      {/* Modals */}
-      {renderReceiptModal()}
+                    <div class="p-4 border-t border-gray-100 bg-gray-50 space-y-4 rounded-b-2xl">
+                        <div class="flex gap-2">
+                            <div class="flex-1">
+                                <label class="text-xs text-gray-500 font-medium">Diskon (%)</label>
+                                <input type="number" id="cart-discount" value="0" min="0" max="100" onchange="updateCartUI()" class="w-full p-2 text-sm border rounded-lg mt-1 outline-none">
+                            </div>
+                            <div class="flex-[2]">
+                                <label class="text-xs text-gray-500 font-medium">Pelanggan (Hutang/Umum)</label>
+                                <select id="cart-customer" class="w-full p-2 text-sm border rounded-lg mt-1 outline-none">
+                                    <!-- Render Pelanggan JS -->
+                                </select>
+                            </div>
+                        </div>
+
+                        <div class="space-y-2 text-sm">
+                            <div class="flex justify-between"><span class="text-gray-500">Subtotal</span><span id="txt-subtotal">Rp 0</span></div>
+                            <div id="div-discount" class="flex justify-between text-rose-500 hidden"><span>Diskon</span><span id="txt-discount">-Rp 0</span></div>
+                            <div class="flex justify-between font-bold text-lg pt-2 border-t border-gray-200">
+                                <span>Total</span><span id="txt-total" class="text-blue-600">Rp 0</span>
+                            </div>
+                        </div>
+
+                        <div class="grid grid-cols-3 gap-2 mt-2">
+                            <button onclick="setPaymentMethod('cash')" id="pay-cash" class="pay-btn py-2 rounded-lg text-sm font-semibold flex flex-col items-center gap-1 bg-emerald-500 text-white"><i class="fa-solid fa-money-bill"></i> Cash</button>
+                            <button onclick="setPaymentMethod('qris')" id="pay-qris" class="pay-btn py-2 rounded-lg text-sm font-semibold flex flex-col items-center gap-1 bg-gray-200 text-gray-600"><i class="fa-solid fa-qrcode"></i> QRIS</button>
+                            <button onclick="setPaymentMethod('kasbon')" id="pay-kasbon" class="pay-btn py-2 rounded-lg text-sm font-semibold flex flex-col items-center gap-1 bg-gray-200 text-gray-600"><i class="fa-solid fa-wallet"></i> Kasbon</button>
+                        </div>
+                        <button onclick="handleCheckout()" id="btn-checkout" disabled class="w-full py-3 bg-gray-400 text-white font-bold rounded-xl shadow-md transition-all text-lg mt-2">
+                            Bayar Sekarang
+                        </button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- HALAMAN PRODUK -->
+            <section id="sec-products" class="hidden space-y-6">
+                <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                    <h2 class="text-2xl font-bold text-gray-800"><i class="fa-solid fa-box text-blue-600 mr-2"></i> Kelola Produk & Stok</h2>
+                    <div class="flex gap-2 w-full md:w-auto">
+                        <button onclick="shareCatalogWA()" class="flex-1 md:flex-none bg-emerald-100 text-emerald-700 px-4 py-2 rounded-xl flex items-center justify-center gap-2 hover:bg-emerald-200 font-medium">
+                            <i class="fa-brands fa-whatsapp"></i> Katalog WA
+                        </button>
+                        <button onclick="toggleAddProduct()" class="flex-1 md:flex-none bg-blue-600 text-white px-4 py-2 rounded-xl flex items-center justify-center gap-2 hover:bg-blue-700 font-medium">
+                            <i class="fa-solid fa-plus"></i> Tambah
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Form Tambah Produk -->
+                <div id="form-add-product" class="hidden bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
+                    <h3 class="font-bold mb-4">Tambah Produk Baru</h3>
+                    <form onsubmit="handleAddProduct(event)" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                        <input id="prod-sku" placeholder="SKU / Barcode (Kosongkan = Auto)" class="border p-2 rounded-lg outline-none">
+                        <input id="prod-name" placeholder="Nama Produk*" required class="border p-2 rounded-lg outline-none">
+                        <input id="prod-price" type="number" placeholder="Harga Jual*" required class="border p-2 rounded-lg outline-none">
+                        <input id="prod-cost" type="number" placeholder="Modal/HPP*" required class="border p-2 rounded-lg outline-none">
+                        <input id="prod-stock" type="number" placeholder="Stok Awal*" required class="border p-2 rounded-lg outline-none">
+                        <div class="border p-2 rounded-lg bg-orange-50 col-span-1 lg:col-span-3 flex flex-wrap gap-2 items-center">
+                            <span class="text-sm font-medium text-orange-800">Grosir (Opsional):</span>
+                            <input id="prod-wqty" type="number" placeholder="Min Qty" class="border p-1 rounded w-24 text-sm" value="0">
+                            <input id="prod-wprice" type="number" placeholder="Harga Grosir" class="border p-1 rounded w-32 text-sm" value="0">
+                        </div>
+                        <div class="col-span-1 md:col-span-2 lg:col-span-4 flex justify-end">
+                            <button type="submit" class="bg-blue-600 text-white px-6 py-2 rounded-lg font-medium">Simpan</button>
+                        </div>
+                    </form>
+                </div>
+
+                <div class="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-x-auto">
+                    <table class="w-full text-left border-collapse min-w-[600px]">
+                        <thead>
+                            <tr class="bg-gray-50 border-b">
+                                <th class="p-4 font-semibold text-gray-600 text-sm">SKU</th>
+                                <th class="p-4 font-semibold text-gray-600 text-sm">Nama Produk</th>
+                                <th class="p-4 font-semibold text-gray-600 text-sm">Stok</th>
+                                <th class="p-4 font-semibold text-gray-600 text-sm">Modal</th>
+                                <th class="p-4 font-semibold text-gray-600 text-sm">Jual</th>
+                                <th class="p-4 font-semibold text-gray-600 text-sm">Grosir</th>
+                                <th class="p-4"></th>
+                            </tr>
+                        </thead>
+                        <tbody id="product-table-body">
+                            <!-- Render Table JS -->
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <!-- HALAMAN PELANGGAN -->
+            <section id="sec-customers" class="hidden space-y-6">
+                <h2 class="text-2xl font-bold text-gray-800"><i class="fa-solid fa-users text-blue-600 mr-2"></i> Pelanggan & Hutang</h2>
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    <div class="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 h-fit">
+                        <h3 class="font-bold mb-4 flex items-center gap-2"><i class="fa-solid fa-plus"></i> Tambah Pelanggan</h3>
+                        <form onsubmit="handleAddCustomer(event)" class="space-y-4">
+                            <input id="cust-name" placeholder="Nama Pelanggan" required class="w-full border p-2 rounded-lg outline-none">
+                            <input id="cust-phone" placeholder="No. WhatsApp" class="w-full border p-2 rounded-lg outline-none">
+                            <button type="submit" class="w-full bg-blue-600 text-white py-2 rounded-lg font-medium">Simpan Pelanggan</button>
+                        </form>
+                    </div>
+                    <div class="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+                        <div class="p-4 bg-gray-50 border-b font-bold">Daftar Pelanggan</div>
+                        <ul id="customer-list" class="divide-y divide-gray-100 max-h-[500px] overflow-y-auto">
+                            <!-- Render Customer JS -->
+                        </ul>
+                    </div>
+                </div>
+            </section>
+
+            <!-- HALAMAN ANALISIS -->
+            <section id="sec-analytics" class="hidden space-y-6">
+                <div class="flex justify-between items-center flex-wrap gap-2">
+                    <h2 class="text-2xl font-bold text-gray-800"><i class="fa-solid fa-chart-line text-blue-600 mr-2"></i> Analisis Warung</h2>
+                    <button onclick="resetTransactions()" class="text-red-500 text-sm hover:bg-red-50 px-3 py-1 rounded border border-red-200">Reset Riwayat Harian</button>
+                </div>
+                
+                <div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                    <div class="bg-white p-4 md:p-6 rounded-2xl shadow-sm border border-gray-100">
+                        <p class="text-gray-500 text-xs md:text-sm font-medium mb-1">Total Omzet</p>
+                        <h3 id="stat-omzet" class="text-xl md:text-2xl font-bold text-gray-800">Rp 0</h3>
+                    </div>
+                    <div class="bg-white p-4 md:p-6 rounded-2xl shadow-sm border border-gray-100">
+                        <p class="text-gray-500 text-xs md:text-sm font-medium mb-1">Laba Kotor</p>
+                        <h3 id="stat-laba" class="text-xl md:text-2xl font-bold text-emerald-600">Rp 0</h3>
+                    </div>
+                    <div class="bg-white p-4 md:p-6 rounded-2xl shadow-sm border border-gray-100">
+                        <p class="text-gray-500 text-xs md:text-sm font-medium mb-1">Pengeluaran</p>
+                        <h3 id="stat-expense" class="text-xl md:text-2xl font-bold text-rose-600">Rp 0</h3>
+                    </div>
+                    <div class="bg-white p-4 md:p-6 rounded-2xl border border-blue-100 bg-blue-50 shadow-sm">
+                        <p class="text-blue-800 text-xs md:text-sm font-medium mb-1">Laba Bersih</p>
+                        <h3 id="stat-net" class="text-xl md:text-2xl font-bold text-blue-700">Rp 0</h3>
+                    </div>
+                </div>
+                
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    <div class="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
+                        <h3 class="font-bold mb-4 flex items-center gap-2 text-rose-600"><i class="fa-solid fa-arrow-down"></i> Catat Pengeluaran Warung</h3>
+                        <form onsubmit="handleAddExpense(event)" class="flex flex-col sm:flex-row gap-2">
+                            <input id="exp-desc" placeholder="Keterangan (Contoh: Listrik)" required class="flex-[2] border p-2 rounded-lg text-sm outline-none">
+                            <input id="exp-amount" type="number" placeholder="Rp" required class="flex-1 border p-2 rounded-lg text-sm outline-none">
+                            <button type="submit" class="bg-rose-500 text-white px-4 py-2 rounded-lg font-medium text-sm">Catat</button>
+                        </form>
+                        <div id="expense-list" class="mt-4 space-y-2">
+                            <!-- Render JS -->
+                        </div>
+                    </div>
+                    <div class="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
+                        <h3 class="font-bold mb-4 flex items-center gap-2 text-orange-600"><i class="fa-solid fa-wallet"></i> Uang di Luar (Kasbon)</h3>
+                        <h2 id="stat-piutang" class="text-3xl md:text-4xl font-black text-orange-500 mb-2">Rp 0</h2>
+                        <p class="text-sm text-gray-500">Segera tagih pelanggan dengan hutang agar arus kas lancar.</p>
+                    </div>
+                </div>
+            </section>
+
+            <!-- HALAMAN PENGATURAN -->
+            <section id="sec-settings" class="hidden space-y-6 max-w-2xl">
+                <h2 class="text-2xl font-bold text-gray-800"><i class="fa-solid fa-gear text-blue-600 mr-2"></i> Pengaturan Toko</h2>
+                <div class="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
+                    <form onsubmit="handleSaveSettings(event)" class="space-y-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Nama Toko / Warung</label>
+                            <input id="set-name" required class="w-full border p-2 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Pesan Struk / Promo</label>
+                            <textarea id="set-promo" rows="3" class="w-full border p-2 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"></textarea>
+                        </div>
+                        <button type="submit" class="bg-blue-600 text-white px-6 py-2 rounded-lg font-medium">Simpan Perubahan</button>
+                    </form>
+                </div>
+                <div class="bg-red-50 p-6 rounded-2xl border border-red-200 mt-6">
+                    <h3 class="font-bold text-red-700 mb-2">Zona Bahaya (Hard Reset)</h3>
+                    <p class="text-sm text-red-600 mb-4">Aksi ini menghapus seluruh data Produk, Pelanggan, dan Riwayat. Aplikasi kembali ke setelan awal.</p>
+                    <button onclick="hardReset()" class="bg-red-600 text-white px-4 py-2 rounded-lg font-medium">Hapus Semua Data Aplikasi</button>
+                </div>
+            </section>
+        </div>
+    </main>
+
+    <!-- BOTTOM NAV (Mobile) -->
+    <nav class="md:hidden fixed bottom-0 w-full bg-white border-t border-gray-200 flex justify-around p-2 z-40">
+        <button onclick="switchTab('pos')" id="mob-pos" class="mob-btn flex flex-col items-center gap-1 p-2 text-blue-600"><i class="fa-solid fa-cart-shopping text-lg"></i><span class="text-[10px] font-medium">Kasir</span></button>
+        <button onclick="switchTab('products')" id="mob-products" class="mob-btn flex flex-col items-center gap-1 p-2 text-gray-400"><i class="fa-solid fa-box text-lg"></i><span class="text-[10px] font-medium">Produk</span></button>
+        <button onclick="switchTab('customers')" id="mob-customers" class="mob-btn flex flex-col items-center gap-1 p-2 text-gray-400"><i class="fa-solid fa-users text-lg"></i><span class="text-[10px] font-medium">Pelanggan</span></button>
+        <button onclick="switchTab('analytics')" id="mob-analytics" class="mob-btn flex flex-col items-center gap-1 p-2 text-gray-400"><i class="fa-solid fa-chart-line text-lg"></i><span class="text-[10px] font-medium">Analisis</span></button>
+        <button onclick="switchTab('settings')" id="mob-settings" class="mob-btn flex flex-col items-center gap-1 p-2 text-gray-400"><i class="fa-solid fa-gear text-lg"></i><span class="text-[10px] font-medium">Seting</span></button>
+    </nav>
+
+    <!-- MODAL STRUK (RECEIPT) -->
+    <div id="receipt-modal" class="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 hidden items-center justify-center p-4 print:block">
+        <div class="bg-white rounded-2xl max-w-sm w-full shadow-2xl overflow-hidden print:w-full print:shadow-none print:max-w-[80mm]">
+            <!-- Area Cetak -->
+            <div class="p-6 text-gray-800 print:p-0">
+                <div class="text-center mb-6 border-b-2 border-dashed border-gray-200 pb-4">
+                    <i class="fa-solid fa-store text-3xl mb-2"></i>
+                    <h2 id="receipt-store" class="text-2xl font-black">WarungKu</h2>
+                    <p id="receipt-date" class="text-sm text-gray-500"></p>
+                    <p id="receipt-info" class="text-xs mt-1 bg-gray-100 inline-block px-2 py-1 rounded uppercase tracking-wider font-semibold"></p>
+                </div>
+                
+                <div id="receipt-items" class="space-y-3 mb-6"></div>
+
+                <div class="border-t-2 border-dashed border-gray-200 pt-4 space-y-2 text-sm">
+                    <div class="flex justify-between"><span>Subtotal</span><span id="receipt-sub">Rp 0</span></div>
+                    <div id="receipt-disc-row" class="flex justify-between text-rose-500 hidden"><span>Diskon</span><span id="receipt-disc">-Rp 0</span></div>
+                    <div class="flex justify-between text-lg font-black pt-2"><span>TOTAL</span><span id="receipt-total">Rp 0</span></div>
+                </div>
+
+                <div id="receipt-customer-box" class="mt-4 p-3 bg-gray-50 rounded-lg text-center text-sm hidden border border-gray-200"></div>
+                <div id="receipt-promo" class="text-center mt-6 text-xs text-gray-500 italic px-4"></div>
+            </div>
+
+            <!-- Tombol Aksi (Sembunyi saat cetak) -->
+            <div class="p-4 bg-gray-50 flex gap-3 no-print border-t border-gray-200">
+                <button onclick="window.print()" class="flex-1 bg-gray-800 text-white py-3 rounded-xl font-bold"><i class="fa-solid fa-print mr-1"></i> Cetak</button>
+                <button onclick="closeReceipt()" class="flex-1 bg-blue-600 text-white py-3 rounded-xl font-bold"><i class="fa-solid fa-check-circle mr-1"></i> Selesai</button>
+            </div>
+        </div>
     </div>
-  );
-}
 
+    <!-- JAVASCRIPT LOGIC -->
+    <script>
+        // --- DATA DEFAULT ---
+        const defaultProducts = [
+            { id: 1, sku: '899123456', name: 'Kopi Kapal Api', price: 1500, cost: 1000, stock: 50, wholesaleQty: 10, wholesalePrice: 1300 },
+            { id: 2, sku: '899654321', name: 'Indomie Goreng', price: 3000, cost: 2500, stock: 100, wholesaleQty: 40, wholesalePrice: 2800 },
+            { id: 3, sku: '899111222', name: 'Beras Pandan Wangi 5kg', price: 75000, cost: 65000, stock: 10, wholesaleQty: 0, wholesalePrice: 0 },
+        ];
+        const defaultCustomers = [
+            { id: 1, name: 'Budi (Bengkel)', phone: '08123456789', debt: 15000 },
+            { id: 2, name: 'Ibu Siti', phone: '08987654321', debt: 0 },
+        ];
+
+        // --- STATE & STORAGE ---
+        let products = JSON.parse(localStorage.getItem('warungku_products')) || defaultProducts;
+        let customers = JSON.parse(localStorage.getItem('warungku_customers')) || defaultCustomers;
+        let transactions = JSON.parse(localStorage.getItem('warungku_transactions')) || [];
+        let expenses = JSON.parse(localStorage.getItem('warungku_expenses')) || [];
+        let storeInfo = JSON.parse(localStorage.getItem('warungku_storeinfo')) || { name: 'WarungKu Sukses', promo: 'Terimakasih! Diskon 5% untuk pembelian berikutnya.' };
+
+        let cart = [];
+        let paymentMethod = 'cash'; // cash, qris, kasbon
+
+        // Utils
+        const formatRp = (num) => new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(num || 0);
+        const generateId = () => Math.random().toString(36).substr(2, 9);
+        const saveData = () => {
+            localStorage.setItem('warungku_products', JSON.stringify(products));
+            localStorage.setItem('warungku_customers', JSON.stringify(customers));
+            localStorage.setItem('warungku_transactions', JSON.stringify(transactions));
+            localStorage.setItem('warungku_expenses', JSON.stringify(expenses));
+            localStorage.setItem('warungku_storeinfo', JSON.stringify(storeInfo));
+            updateAnalyticsUI(); // Update dashboard anytime data changes
+        };
+
+        // --- NAVIGATION ---
+        const sections = ['pos', 'products', 'customers', 'analytics', 'settings'];
+        function switchTab(tabId) {
+            // Hide all, reset buttons
+            sections.forEach(s => {
+                document.getElementById(`sec-${s}`).classList.add('hidden');
+                
+                // Desktop Nav Update
+                const dBtn = document.getElementById(`tab-${s}`);
+                dBtn.className = "nav-btn w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all text-gray-400 hover:bg-gray-800 hover:text-white";
+                
+                // Mobile Nav Update
+                const mBtn = document.getElementById(`mob-${s}`);
+                mBtn.className = "mob-btn flex flex-col items-center gap-1 p-2 text-gray-400";
+            });
+
+            // Show Active
+            document.getElementById(`sec-${tabId}`).classList.remove('hidden');
+            
+            // Active Desktop
+            const activeDBtn = document.getElementById(`tab-${tabId}`);
+            activeDBtn.className = "nav-btn w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all bg-blue-600 text-white font-medium";
+            
+            // Active Mobile
+            const activeMBtn = document.getElementById(`mob-${tabId}`);
+            activeMBtn.className = "mob-btn flex flex-col items-center gap-1 p-2 text-blue-600";
+        }
+
+        // --- INITIALIZATION ---
+        function initApp() {
+            document.getElementById('sidebar-store-name').innerText = storeInfo.name;
+            document.getElementById('mobile-store-name').innerText = storeInfo.name;
+            document.getElementById('set-name').value = storeInfo.name;
+            document.getElementById('set-promo').value = storeInfo.promo;
+
+            renderPOSProducts();
+            renderProductTable();
+            renderCustomerList();
+            renderCustomerDropdown();
+            renderExpenseList();
+            updateAnalyticsUI();
+        }
+
+        // ================= POS LOGIC =================
+        function getActivePrice(p, qty) {
+            return (p.wholesaleQty > 0 && qty >= p.wholesaleQty) ? p.wholesalePrice : p.price;
+        }
+
+        function renderPOSProducts(search = '') {
+            const grid = document.getElementById('pos-product-grid');
+            grid.innerHTML = '';
+            
+            const filtered = products.filter(p => p.name.toLowerCase().includes(search.toLowerCase()) || p.sku.includes(search));
+            
+            filtered.forEach(p => {
+                const outOfStock = p.stock <= 0;
+                grid.innerHTML += `
+                    <div onclick="${outOfStock ? '' : `addToCart(${p.id})`}" class="bg-white p-4 rounded-2xl shadow-sm border ${outOfStock ? 'border-red-200 opacity-60' : 'border-gray-100 hover:border-blue-400 cursor-pointer'} transition-all">
+                        <div class="h-16 bg-gray-50 rounded-lg flex items-center justify-center mb-3">
+                            <i class="fa-solid fa-box text-gray-300 text-2xl"></i>
+                        </div>
+                        <h3 class="font-semibold text-gray-800 line-clamp-2 text-xs md:text-sm h-10">${p.name}</h3>
+                        <p class="text-blue-600 font-bold mt-1 text-sm md:text-base">${formatRp(p.price)}</p>
+                        <div class="flex justify-between items-center mt-2 text-[10px] md:text-xs">
+                            <span class="text-gray-500">Stok: ${p.stock}</span>
+                            ${p.wholesaleQty > 0 ? `<span class="bg-orange-100 text-orange-700 px-1 py-0.5 rounded">Grosir</span>` : ''}
+                        </div>
+                    </div>
+                `;
+            });
+        }
+
+        function handleBarcodeScan(e) {
+            e.preventDefault();
+            const val = document.getElementById('search-sku').value;
+            const p = products.find(prod => prod.sku === val || prod.name.toLowerCase().includes(val.toLowerCase()));
+            if (p) addToCart(p.id);
+            else alert('Produk tidak ditemukan!');
+            document.getElementById('search-sku').value = '';
+            renderPOSProducts(); // reset grid
+        }
+
+        document.getElementById('search-sku').addEventListener('input', (e) => {
+            renderPOSProducts(e.target.value);
+        });
+
+        function addToCart(id) {
+            const p = products.find(x => x.id === id);
+            if(p.stock <= 0) return alert('Stok habis!');
+            
+            const exist = cart.find(x => x.id === id);
+            if(exist) {
+                if(exist.qty >= p.stock) return alert('Stok tidak mencukupi!');
+                exist.qty++;
+                exist.activePrice = getActivePrice(p, exist.qty);
+            } else {
+                cart.push({ ...p, qty: 1, activePrice: getActivePrice(p, 1) });
+            }
+            updateCartUI();
+        }
+
+        function changeQty(id, delta) {
+            const item = cart.find(x => x.id === id);
+            const p = products.find(x => x.id === id);
+            item.qty += delta;
+            
+            if(item.qty <= 0) {
+                cart = cart.filter(x => x.id !== id);
+            } else if(item.qty > p.stock) {
+                item.qty = p.stock;
+                alert('Maksimal stok tercapai!');
+            }
+            if(item) item.activePrice = getActivePrice(p, item.qty);
+            updateCartUI();
+        }
+
+        function setPaymentMethod(method) {
+            paymentMethod = method;
+            ['cash', 'qris', 'kasbon'].forEach(m => {
+                const btn = document.getElementById(`pay-${m}`);
+                btn.className = `pay-btn py-2 rounded-lg text-sm font-semibold flex flex-col items-center gap-1 ${m === method ? (m==='cash'?'bg-emerald-500 text-white':m==='qris'?'bg-blue-500 text-white':'bg-rose-500 text-white') : 'bg-gray-200 text-gray-600'}`;
+            });
+        }
+
+        function updateCartUI() {
+            const container = document.getElementById('cart-items');
+            document.getElementById('cart-count').innerText = `${cart.length} Item`;
+            
+            if (cart.length === 0) {
+                container.innerHTML = `<div class="h-full flex flex-col items-center justify-center text-gray-400 opacity-50"><i class="fa-solid fa-cart-shopping text-4xl mb-4"></i><p>Keranjang kosong</p></div>`;
+                document.getElementById('btn-checkout').disabled = true;
+                document.getElementById('btn-checkout').className = "w-full py-3 bg-gray-400 text-white font-bold rounded-xl shadow-md transition-all text-lg mt-2 cursor-not-allowed";
+            } else {
+                container.innerHTML = cart.map(item => `
+                    <div class="flex justify-between items-center pb-4 border-b border-gray-50">
+                        <div class="flex-1">
+                            <h4 class="font-medium text-sm text-gray-800">${item.name}</h4>
+                            <p class="text-blue-600 font-semibold text-sm">${formatRp(item.activePrice)}</p>
+                            ${item.activePrice < item.price ? `<span class="text-[10px] bg-orange-100 text-orange-600 px-1 rounded">Grosir</span>` : ''}
+                        </div>
+                        <div class="flex items-center gap-3">
+                            <button onclick="changeQty(${item.id}, -1)" class="p-1 rounded-full bg-gray-100 hover:bg-gray-200"><i class="fa-solid fa-minus text-xs"></i></button>
+                            <span class="font-semibold w-6 text-center text-sm">${item.qty}</span>
+                            <button onclick="changeQty(${item.id}, 1)" class="p-1 rounded-full bg-gray-100 hover:bg-gray-200"><i class="fa-solid fa-plus text-xs"></i></button>
+                        </div>
+                    </div>
+                `).join('');
+                document.getElementById('btn-checkout').disabled = false;
+                document.getElementById('btn-checkout').className = "w-full py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl shadow-md transition-all text-lg mt-2";
+            }
+
+            // Math
+            const subtotal = cart.reduce((sum, item) => sum + (item.activePrice * item.qty), 0);
+            const discPercent = Number(document.getElementById('cart-discount').value) || 0;
+            const discount = (subtotal * discPercent) / 100;
+            const total = subtotal - discount;
+
+            document.getElementById('txt-subtotal').innerText = formatRp(subtotal);
+            const discRow = document.getElementById('div-discount');
+            if(discount > 0) {
+                discRow.classList.remove('hidden');
+                document.getElementById('txt-discount').innerText = `-${formatRp(discount)}`;
+            } else {
+                discRow.classList.add('hidden');
+            }
+            document.getElementById('txt-total').innerText = formatRp(total);
+        }
+
+        function handleCheckout() {
+            if(cart.length === 0) return;
+            const customerId = document.getElementById('cart-customer').value;
+            
+            if(paymentMethod === 'kasbon' && !customerId) {
+                return alert('Pilih Pelanggan terlebih dahulu untuk transaksi Kasbon/Hutang!');
+            }
+
+            const subtotal = cart.reduce((sum, item) => sum + (item.activePrice * item.qty), 0);
+            const discPercent = Number(document.getElementById('cart-discount').value) || 0;
+            const discount = (subtotal * discPercent) / 100;
+            const total = subtotal - discount;
+            const totalCost = cart.reduce((sum, item) => sum + (item.cost * item.qty), 0);
+
+            const trx = {
+                id: `TRX-${Date.now().toString().slice(-6)}`,
+                date: new Date().toISOString(),
+                items: [...cart],
+                subtotal, discount, total, cost: totalCost,
+                profit: total - totalCost,
+                method: paymentMethod,
+                customerId: customerId || null
+            };
+
+            // Deduct Stock
+            products = products.map(p => {
+                const c = cart.find(x => x.id === p.id);
+                return c ? { ...p, stock: p.stock - c.qty } : p;
+            });
+
+            // Add Debt
+            if(paymentMethod === 'kasbon') {
+                customers = customers.map(c => c.id == customerId ? { ...c, debt: c.debt + total } : c);
+                renderCustomerList(); // Update UI
+            }
+
+            transactions.unshift(trx);
+            saveData();
+            
+            showReceipt(trx);
+
+            // Reset
+            cart = [];
+            document.getElementById('cart-discount').value = 0;
+            document.getElementById('cart-customer').value = "";
+            setPaymentMethod('cash');
+            updateCartUI();
+            renderPOSProducts(); // Update stock UI
+            renderProductTable();
+        }
+
+        // ================= RECEIPT =================
+        function showReceipt(trx) {
+            document.getElementById('receipt-modal').classList.remove('hidden');
+            document.getElementById('receipt-modal').classList.add('flex');
+            
+            document.getElementById('receipt-store').innerText = storeInfo.name;
+            document.getElementById('receipt-date').innerText = new Date(trx.date).toLocaleString('id-ID');
+            document.getElementById('receipt-info').innerText = `${trx.id} • ${trx.method}`;
+            
+            document.getElementById('receipt-items').innerHTML = trx.items.map(item => `
+                <div class="flex justify-between text-sm">
+                    <div>
+                        <p class="font-semibold">${item.name}</p>
+                        <p class="text-gray-500 text-xs">${item.qty} x ${formatRp(item.activePrice)}</p>
+                    </div>
+                    <div class="font-bold">${formatRp(item.qty * item.activePrice)}</div>
+                </div>
+            `).join('');
+
+            document.getElementById('receipt-sub').innerText = formatRp(trx.subtotal);
+            if(trx.discount > 0) {
+                document.getElementById('receipt-disc-row').classList.remove('hidden');
+                document.getElementById('receipt-disc').innerText = `-${formatRp(trx.discount)}`;
+            } else {
+                document.getElementById('receipt-disc-row').classList.add('hidden');
+            }
+            document.getElementById('receipt-total').innerText = formatRp(trx.total);
+
+            const custBox = document.getElementById('receipt-customer-box');
+            if(trx.customerId) {
+                const c = customers.find(x => x.id == trx.customerId);
+                custBox.classList.remove('hidden');
+                custBox.innerHTML = `Pelanggan: <span class="font-bold">${c ? c.name : 'Unknown'}</span>
+                    ${trx.method === 'kasbon' ? '<p class="text-rose-600 font-bold mt-1 text-xs border border-rose-200 bg-rose-50 inline-block px-2 py-0.5 rounded">STATUS: KASBON / BELUM LUNAS</p>' : ''}`;
+            } else {
+                custBox.classList.add('hidden');
+            }
+
+            document.getElementById('receipt-promo').innerText = storeInfo.promo;
+        }
+
+        function closeReceipt() {
+            document.getElementById('receipt-modal').classList.add('hidden');
+            document.getElementById('receipt-modal').classList.remove('flex');
+        }
+
+        // ================= PRODUCTS LOGIC =================
+        function toggleAddProduct() {
+            const form = document.getElementById('form-add-product');
+            form.classList.toggle('hidden');
+        }
+
+        function handleAddProduct(e) {
+            e.preventDefault();
+            const newProd = {
+                id: Date.now(),
+                sku: document.getElementById('prod-sku').value || generateId(),
+                name: document.getElementById('prod-name').value,
+                price: Number(document.getElementById('prod-price').value),
+                cost: Number(document.getElementById('prod-cost').value),
+                stock: Number(document.getElementById('prod-stock').value),
+                wholesaleQty: Number(document.getElementById('prod-wqty').value),
+                wholesalePrice: Number(document.getElementById('prod-wprice').value)
+            };
+            products.unshift(newProd);
+            saveData();
+            e.target.reset();
+            toggleAddProduct();
+            renderProductTable();
+            renderPOSProducts();
+        }
+
+        function deleteProduct(id) {
+            if(confirm('Yakin ingin menghapus produk ini?')) {
+                products = products.filter(p => p.id !== id);
+                saveData();
+                renderProductTable();
+                renderPOSProducts();
+            }
+        }
+
+        function renderProductTable() {
+            const tbody = document.getElementById('product-table-body');
+            if(products.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="7" class="p-8 text-center text-gray-500">Belum ada produk.</td></tr>`;
+                return;
+            }
+            tbody.innerHTML = products.map(p => `
+                <tr class="border-b border-gray-50 hover:bg-gray-50">
+                    <td class="p-4 text-xs md:text-sm text-gray-500">${p.sku}</td>
+                    <td class="p-4 font-medium text-sm">${p.name}</td>
+                    <td class="p-4">
+                        <span class="px-2 py-1 rounded text-xs font-medium ${p.stock < 10 ? 'bg-red-100 text-red-700' : 'bg-emerald-100 text-emerald-700'}">${p.stock}</span>
+                    </td>
+                    <td class="p-4 text-gray-500 text-sm">${formatRp(p.cost)}</td>
+                    <td class="p-4 text-blue-600 font-semibold text-sm">${formatRp(p.price)}</td>
+                    <td class="p-4 text-xs text-gray-500">${p.wholesaleQty > 0 ? `Min ${p.wholesaleQty}:<br>${formatRp(p.wholesalePrice)}` : '-'}</td>
+                    <td class="p-4 text-right">
+                        <button onclick="deleteProduct(${p.id})" class="text-red-400 hover:text-red-600"><i class="fa-solid fa-trash"></i></button>
+                    </td>
+                </tr>
+            `).join('');
+        }
+
+        function shareCatalogWA() {
+            const text = `*Katalog ${storeInfo.name}*\n\n` + products.map(p => 
+                `- ${p.name}: ${formatRp(p.price)}` + 
+                (p.wholesaleQty > 0 ? ` (Grosir: ${formatRp(p.wholesalePrice)} min ${p.wholesaleQty})` : '')
+            ).join('\n') + `\n\nYuk pesan sekarang!`;
+            window.open(`https://wa.me/?text=${encodeURIComponent(text)}`);
+        }
+
+        // ================= CUSTOMER LOGIC =================
+        function handleAddCustomer(e) {
+            e.preventDefault();
+            customers.push({
+                id: Date.now(),
+                name: document.getElementById('cust-name').value,
+                phone: document.getElementById('cust-phone').value,
+                debt: 0
+            });
+            saveData();
+            e.target.reset();
+            renderCustomerList();
+            renderCustomerDropdown();
+        }
+
+        function payDebt(id) {
+            const c = customers.find(x => x.id === id);
+            const pay = prompt(`Masukkan nominal pembayaran hutang untuk ${c.name} (Max: ${c.debt}):`);
+            if(pay && !isNaN(pay)) {
+                c.debt = Math.max(0, c.debt - Number(pay));
+                saveData();
+                renderCustomerList();
+            }
+        }
+
+        function renderCustomerList() {
+            const list = document.getElementById('customer-list');
+            if(customers.length === 0) {
+                list.innerHTML = `<li class="p-8 text-center text-gray-500">Belum ada pelanggan.</li>`;
+                return;
+            }
+            list.innerHTML = customers.map(c => `
+                <li class="p-4 flex justify-between items-center hover:bg-gray-50">
+                    <div>
+                        <h4 class="font-semibold text-sm md:text-base">${c.name}</h4>
+                        <p class="text-xs text-gray-500">${c.phone || '-'}</p>
+                    </div>
+                    <div class="text-right flex items-center gap-3">
+                        ${c.debt > 0 ? `
+                            <div><p class="text-[10px] text-gray-500">Sisa Kasbon</p><p class="text-rose-600 font-bold text-sm">${formatRp(c.debt)}</p></div>
+                            <button onclick="payDebt(${c.id})" class="bg-emerald-500 text-white px-2 py-1 rounded text-xs hover:bg-emerald-600">Bayar</button>
+                        ` : `<span class="text-[10px] bg-emerald-100 text-emerald-700 px-2 py-1 rounded font-semibold">Lunas</span>`}
+                    </div>
+                </li>
+            `).join('');
+        }
+
+        function renderCustomerDropdown() {
+            const select = document.getElementById('cart-customer');
+            select.innerHTML = `<option value="">-- Pelanggan Umum --</option>` + 
+                customers.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
+        }
+
+        // ================= ANALYTICS & EXPENSE =================
+        function handleAddExpense(e) {
+            e.preventDefault();
+            expenses.unshift({
+                id: Date.now(),
+                desc: document.getElementById('exp-desc').value,
+                amount: Number(document.getElementById('exp-amount').value),
+                date: new Date().toISOString()
+            });
+            saveData();
+            e.target.reset();
+            renderExpenseList();
+        }
+
+        function renderExpenseList() {
+            const list = document.getElementById('expense-list');
+            list.innerHTML = expenses.slice(0, 5).map(e => `
+                <div class="flex justify-between text-sm border-b border-gray-100 pb-2">
+                    <span class="text-gray-600">${e.desc}</span>
+                    <span class="text-rose-600 font-semibold">-${formatRp(e.amount)}</span>
+                </div>
+            `).join('') || '<p class="text-sm text-gray-400 text-center py-2">Belum ada pengeluaran</p>';
+        }
+
+        function updateAnalyticsUI() {
+            const totOmzet = transactions.reduce((sum, t) => sum + t.total, 0);
+            const totProfit = transactions.reduce((sum, t) => sum + t.profit, 0);
+            const totExpense = expenses.reduce((sum, e) => sum + e.amount, 0);
+            const netProfit = totProfit - totExpense;
+            const totPiutang = customers.reduce((sum, c) => sum + c.debt, 0);
+
+            document.getElementById('stat-omzet').innerText = formatRp(totOmzet);
+            document.getElementById('stat-laba').innerText = formatRp(totProfit);
+            document.getElementById('stat-expense').innerText = formatRp(totExpense);
+            document.getElementById('stat-net').innerText = formatRp(netProfit);
+            document.getElementById('stat-piutang').innerText = formatRp(totPiutang);
+        }
+
+        function resetTransactions() {
+            if(confirm('Yakin mereset riwayat transaksi & pengeluaran? (Stok dan Pelanggan aman)')) {
+                transactions = [];
+                expenses = [];
+                saveData();
+                renderExpenseList();
+                alert('Riwayat direset.');
+            }
+        }
+
+        // ================= SETTINGS =================
+        function handleSaveSettings(e) {
+            e.preventDefault();
+            storeInfo = {
+                name: document.getElementById('set-name').value,
+                promo: document.getElementById('set-promo').value
+            };
+            saveData();
+            document.getElementById('sidebar-store-name').innerText = storeInfo.name;
+            document.getElementById('mobile-store-name').innerText = storeInfo.name;
+            alert('Pengaturan disimpan!');
+        }
+
+        function hardReset() {
+            if(prompt('PERINGATAN! Ketik "HAPUS" untuk mereset SEMUA DATA.') === 'HAPUS') {
+                localStorage.clear();
+                window.location.reload();
+            }
+        }
+
+        // Initialize Application
+        window.onload = initApp;
+    </script>
+</body>
+</html>
