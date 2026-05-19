@@ -1,0 +1,611 @@
+import React, { useState, useMemo, useEffect } from 'react';
+import { 
+  ShoppingCart, Package, Users, TrendingUp, Receipt, 
+  Settings, Printer, Share2, Search, Plus, Trash2, 
+  Minus, CreditCard, Wallet, Banknote, X, CheckCircle, Store, BarChart3, ArrowDownCircle
+} from 'lucide-react';
+
+// --- DATA AWAL (DUMMY) ---
+const initialProducts = [
+  { id: 1, sku: '899123456', name: 'Kopi Kapal Api', price: 1500, cost: 1000, stock: 50, wholesaleQty: 10, wholesalePrice: 1300 },
+  { id: 2, sku: '899654321', name: 'Indomie Goreng', price: 3000, cost: 2500, stock: 100, wholesaleQty: 40, wholesalePrice: 2800 },
+  { id: 3, sku: '899111222', name: 'Beras Pandan Wangi 5kg', price: 75000, cost: 65000, stock: 10, wholesaleQty: 0, wholesalePrice: 0 },
+];
+
+const initialCustomers = [
+  { id: 1, name: 'Budi (Bengkel)', phone: '08123456789', debt: 15000 },
+  { id: 2, name: 'Ibu Siti', phone: '08987654321', debt: 0 },
+];
+
+export default function App() {
+  // --- STATES ---
+  const [activeTab, setActiveTab] = useState('pos');
+  const [products, setProducts] = useState(initialProducts);
+  const [customers, setCustomers] = useState(initialCustomers);
+  const [transactions, setTransactions] = useState([]);
+  const [expenses, setExpenses] = useState([]);
+  const [storeInfo, setStoreInfo] = useState({ name: 'WarungKu Sukses', promo: 'Terima kasih telah berbelanja! Dapatkan diskon 5% untuk pembelian berikutnya.' });
+
+  // POS States
+  const [cart, setCart] = useState([]);
+  const [searchSKU, setSearchSKU] = useState('');
+  const [discountPercent, setDiscountPercent] = useState(0);
+  const [selectedCustomer, setSelectedCustomer] = useState(null);
+  const [paymentMethod, setPaymentMethod] = useState('cash'); // cash, qris, kasbon
+  const [receiptData, setReceiptData] = useState(null);
+
+  // Forms State
+  const [showAddProduct, setShowAddProduct] = useState(false);
+  
+  // --- UTILS ---
+  const formatRp = (num) => new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(num || 0);
+  const generateId = () => Math.random().toString(36).substr(2, 9);
+
+  // --- POS LOGIC ---
+  const getProductPrice = (product, qty) => {
+    if (product.wholesaleQty > 0 && qty >= product.wholesaleQty) {
+      return product.wholesalePrice;
+    }
+    return product.price;
+  };
+
+  const addToCart = (product) => {
+    setCart(prev => {
+      const existing = prev.find(item => item.id === product.id);
+      if (existing) {
+        if (existing.qty >= product.stock) {
+          alert('Stok tidak mencukupi!');
+          return prev;
+        }
+        return prev.map(item => 
+          item.id === product.id 
+            ? { ...item, qty: item.qty + 1, activePrice: getProductPrice(product, item.qty + 1) } 
+            : item
+        );
+      }
+      return [...prev, { ...product, qty: 1, activePrice: getProductPrice(product, 1) }];
+    });
+  };
+
+  const updateCartQty = (id, delta) => {
+    setCart(prev => prev.map(item => {
+      if (item.id === id) {
+        const newQty = item.qty + delta;
+        if (newQty <= 0) return null;
+        if (newQty > item.stock) {
+          alert('Stok tidak mencukupi!');
+          return item;
+        }
+        return { ...item, qty: newQty, activePrice: getProductPrice(item, newQty) };
+      }
+      return item;
+    }).filter(Boolean));
+  };
+
+  const handleBarcodeScan = (e) => {
+    e.preventDefault();
+    const product = products.find(p => p.sku === searchSKU || p.name.toLowerCase().includes(searchSKU.toLowerCase()));
+    if (product) {
+      addToCart(product);
+      setSearchSKU('');
+    } else {
+      alert('Produk tidak ditemukan!');
+    }
+  };
+
+  const cartSubtotal = cart.reduce((sum, item) => sum + (item.activePrice * item.qty), 0);
+  const cartDiscount = (cartSubtotal * discountPercent) / 100;
+  const cartTotal = cartSubtotal - cartDiscount;
+
+  const handleCheckout = () => {
+    if (cart.length === 0) return;
+    
+    // Validasi Kasbon
+    if (paymentMethod === 'kasbon' && !selectedCustomer) {
+      alert('Pilih pelanggan terlebih dahulu untuk transaksi Kasbon/Hutang!');
+      return;
+    }
+
+    const totalCost = cart.reduce((sum, item) => sum + (item.cost * item.qty), 0);
+    const profit = cartTotal - totalCost;
+
+    const newTrx = {
+      id: `TRX-${Date.now()}`,
+      date: new Date().toISOString(),
+      items: [...cart],
+      subtotal: cartSubtotal,
+      discount: cartDiscount,
+      total: cartTotal,
+      cost: totalCost,
+      profit: profit,
+      method: paymentMethod,
+      customerId: selectedCustomer?.id || null
+    };
+
+    // Update Stock
+    setProducts(prev => prev.map(p => {
+      const cartItem = cart.find(c => c.id === p.id);
+      return cartItem ? { ...p, stock: p.stock - cartItem.qty } : p;
+    }));
+
+    // Update Debt if Kasbon
+    if (paymentMethod === 'kasbon') {
+      setCustomers(prev => prev.map(c => 
+        c.id === selectedCustomer.id ? { ...c, debt: c.debt + cartTotal } : c
+      ));
+    }
+
+    setTransactions([newTrx, ...transactions]);
+    setReceiptData(newTrx); // Show receipt modal
+    
+    // Reset Cart
+    setCart([]);
+    setDiscountPercent(0);
+    setSelectedCustomer(null);
+    setPaymentMethod('cash');
+  };
+
+  // --- CATALOG SHARE ---
+  const shareCatalogWA = () => {
+    const text = `*Katalog ${storeInfo.name}*\n\n` + products.map(p => 
+      `- ${p.name}: ${formatRp(p.price)}` + 
+      (p.wholesaleQty > 0 ? ` (Grosir: ${formatRp(p.wholesalePrice)} min ${p.wholesaleQty})` : '')
+    ).join('\n') + `\n\nYuk pesan sekarang!`;
+    window.open(`https://wa.me/?text=${encodeURIComponent(text)}`);
+  };
+
+  // --- ANALYTICS ---
+  const analytics = useMemo(() => {
+    const totalOmzet = transactions.reduce((sum, t) => sum + t.total, 0);
+    const totalProfit = transactions.reduce((sum, t) => sum + t.profit, 0);
+    const totalExpense = expenses.reduce((sum, e) => sum + e.amount, 0);
+    const netProfit = totalProfit - totalExpense;
+    const totalPiutang = customers.reduce((sum, c) => sum + c.debt, 0);
+
+    return { totalOmzet, totalProfit, totalExpense, netProfit, totalPiutang };
+  }, [transactions, expenses, customers]);
+
+
+  // ================= RENDERERS =================
+
+  const renderPOS = () => (
+    <div className="flex flex-col lg:flex-row gap-6 h-[calc(100vh-6rem)]">
+      {/* Kiri: Katalog & Pencarian */}
+      <div className="flex-1 flex flex-col gap-4">
+        <form onSubmit={handleBarcodeScan} className="flex gap-2">
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-3 text-gray-400" size={20} />
+            <input 
+              type="text" 
+              placeholder="Scan Barcode (SKU) atau Cari Nama Produk + Enter..." 
+              value={searchSKU}
+              onChange={(e) => setSearchSKU(e.target.value)}
+              className="w-full pl-10 pr-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-blue-500 outline-none shadow-sm"
+              autoFocus
+            />
+          </div>
+          <button type="submit" className="bg-blue-600 text-white px-6 rounded-xl hover:bg-blue-700 font-medium shadow-sm transition-all">
+            Cari
+          </button>
+        </form>
+
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 overflow-y-auto pb-24">
+          {products.filter(p => p.name.toLowerCase().includes(searchSKU.toLowerCase()) || p.sku.includes(searchSKU)).map(product => (
+            <div key={product.id} onClick={() => addToCart(product)} 
+                 className={`bg-white p-4 rounded-2xl shadow-sm border ${product.stock <= 0 ? 'border-red-200 opacity-60' : 'border-gray-100 hover:border-blue-400 cursor-pointer transition-all'}`}>
+              <div className="h-20 bg-gray-50 rounded-lg flex items-center justify-center mb-3">
+                <Package className="text-gray-300" size={32} />
+              </div>
+              <h3 className="font-semibold text-gray-800 line-clamp-2 text-sm h-10">{product.name}</h3>
+              <p className="text-blue-600 font-bold mt-1">{formatRp(product.price)}</p>
+              <div className="flex justify-between items-center mt-2 text-xs">
+                <span className="text-gray-500">Stok: {product.stock}</span>
+                {product.wholesaleQty > 0 && (
+                  <span className="bg-orange-100 text-orange-700 px-2 py-1 rounded">Grosir</span>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Kanan: Keranjang */}
+      <div className="w-full lg:w-96 bg-white rounded-2xl shadow-lg border border-gray-100 flex flex-col h-full">
+        <div className="p-4 border-b border-gray-100 flex justify-between items-center bg-gray-50 rounded-t-2xl">
+          <h2 className="font-bold text-lg flex items-center gap-2"><ShoppingCart size={20}/> Keranjang</h2>
+          <span className="bg-blue-100 text-blue-700 px-3 py-1 rounded-full text-sm font-semibold">{cart.length} Item</span>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-4 space-y-4">
+          {cart.length === 0 ? (
+            <div className="h-full flex flex-col items-center justify-center text-gray-400">
+              <ShoppingCart size={48} className="mb-4 opacity-50" />
+              <p>Keranjang kosong</p>
+            </div>
+          ) : (
+            cart.map(item => (
+              <div key={item.id} className="flex justify-between items-center pb-4 border-b border-gray-50">
+                <div className="flex-1">
+                  <h4 className="font-medium text-sm text-gray-800">{item.name}</h4>
+                  <p className="text-blue-600 font-semibold text-sm">{formatRp(item.activePrice)}</p>
+                  {item.activePrice < item.price && <span className="text-[10px] bg-orange-100 text-orange-600 px-1 rounded">Harga Grosir</span>}
+                </div>
+                <div className="flex items-center gap-3">
+                  <button onClick={() => updateCartQty(item.id, -1)} className="p-1 rounded-full bg-gray-100 hover:bg-gray-200"><Minus size={14}/></button>
+                  <span className="font-semibold w-6 text-center">{item.qty}</span>
+                  <button onClick={() => updateCartQty(item.id, 1)} className="p-1 rounded-full bg-gray-100 hover:bg-gray-200"><Plus size={14}/></button>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+
+        <div className="p-4 border-t border-gray-100 bg-gray-50 space-y-4 rounded-b-2xl">
+          {/* Diskon & Pelanggan */}
+          <div className="flex gap-2">
+            <div className="flex-1">
+              <label className="text-xs text-gray-500 font-medium">Diskon (%)</label>
+              <input type="number" value={discountPercent} onChange={e => setDiscountPercent(e.target.value)} min="0" max="100" className="w-full p-2 text-sm border rounded-lg mt-1" />
+            </div>
+            <div className="flex-[2]">
+              <label className="text-xs text-gray-500 font-medium">Pelanggan</label>
+              <select className="w-full p-2 text-sm border rounded-lg mt-1" onChange={e => setSelectedCustomer(customers.find(c => c.id == e.target.value) || null)}>
+                <option value="">-- Umum --</option>
+                {customers.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
+            </div>
+          </div>
+
+          <div className="space-y-2 text-sm">
+            <div className="flex justify-between"><span className="text-gray-500">Subtotal</span><span>{formatRp(cartSubtotal)}</span></div>
+            {cartDiscount > 0 && <div className="flex justify-between text-rose-500"><span>Diskon</span><span>-{formatRp(cartDiscount)}</span></div>}
+            <div className="flex justify-between font-bold text-lg pt-2 border-t border-gray-200">
+              <span>Total</span><span className="text-blue-600">{formatRp(cartTotal)}</span>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-3 gap-2 mt-2">
+            <button onClick={() => setPaymentMethod('cash')} className={`py-2 rounded-lg text-sm font-semibold flex flex-col items-center gap-1 ${paymentMethod === 'cash' ? 'bg-emerald-500 text-white' : 'bg-gray-200 text-gray-600'}`}><Banknote size={16}/> Cash</button>
+            <button onClick={() => setPaymentMethod('qris')} className={`py-2 rounded-lg text-sm font-semibold flex flex-col items-center gap-1 ${paymentMethod === 'qris' ? 'bg-blue-500 text-white' : 'bg-gray-200 text-gray-600'}`}><CreditCard size={16}/> QRIS</button>
+            <button onClick={() => setPaymentMethod('kasbon')} className={`py-2 rounded-lg text-sm font-semibold flex flex-col items-center gap-1 ${paymentMethod === 'kasbon' ? 'bg-rose-500 text-white' : 'bg-gray-200 text-gray-600'}`}><Wallet size={16}/> Kasbon</button>
+          </div>
+
+          <button onClick={handleCheckout} disabled={cart.length === 0} className="w-full py-3 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 text-white font-bold rounded-xl shadow-md transition-all text-lg mt-2">
+            Bayar Sekarang
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+
+  const renderProducts = () => (
+    <div className="space-y-6">
+      <div className="flex justify-between items-center">
+        <h2 className="text-2xl font-bold text-gray-800 flex items-center gap-2"><Package className="text-blue-600" /> Kelola Produk & Stok</h2>
+        <div className="flex gap-2">
+          <button onClick={shareCatalogWA} className="bg-emerald-100 text-emerald-700 px-4 py-2 rounded-xl flex items-center gap-2 hover:bg-emerald-200 font-medium">
+            <Share2 size={18}/> Share Katalog WA
+          </button>
+          <button onClick={() => setShowAddProduct(!showAddProduct)} className="bg-blue-600 text-white px-4 py-2 rounded-xl flex items-center gap-2 hover:bg-blue-700 font-medium">
+            <Plus size={18}/> Tambah Produk
+          </button>
+        </div>
+      </div>
+
+      {showAddProduct && (
+        <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
+          <h3 className="font-bold mb-4">Tambah Produk Baru</h3>
+          <form onSubmit={(e) => {
+            e.preventDefault();
+            const fd = new FormData(e.target);
+            const newProd = {
+              id: Date.now(),
+              sku: fd.get('sku') || generateId(),
+              name: fd.get('name'),
+              price: Number(fd.get('price')),
+              cost: Number(fd.get('cost')),
+              stock: Number(fd.get('stock')),
+              wholesaleQty: Number(fd.get('wQty')),
+              wholesalePrice: Number(fd.get('wPrice'))
+            };
+            setProducts([newProd, ...products]);
+            setShowAddProduct(false);
+          }} className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            <input name="sku" placeholder="SKU / Barcode" className="border p-2 rounded-lg" />
+            <input name="name" placeholder="Nama Produk*" required className="border p-2 rounded-lg" />
+            <input name="price" type="number" placeholder="Harga Jual*" required className="border p-2 rounded-lg" />
+            <input name="cost" type="number" placeholder="Modal/HPP*" required className="border p-2 rounded-lg" />
+            <input name="stock" type="number" placeholder="Stok Awal*" required className="border p-2 rounded-lg" />
+            <div className="border p-2 rounded-lg bg-orange-50 col-span-1 lg:col-span-3 flex gap-4 items-center">
+              <span className="text-sm font-medium text-orange-800">Seting Grosir (Opsional):</span>
+              <input name="wQty" type="number" placeholder="Min Qty" className="border p-1 rounded w-24 text-sm" defaultValue="0" />
+              <input name="wPrice" type="number" placeholder="Harga Grosir" className="border p-1 rounded w-32 text-sm" defaultValue="0" />
+            </div>
+            <div className="col-span-1 md:col-span-2 lg:col-span-4 flex justify-end">
+              <button type="submit" className="bg-blue-600 text-white px-6 py-2 rounded-lg font-medium">Simpan</button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+        <table className="w-full text-left border-collapse">
+          <thead>
+            <tr className="bg-gray-50 border-b">
+              <th className="p-4 font-semibold text-gray-600">SKU</th>
+              <th className="p-4 font-semibold text-gray-600">Nama Produk</th>
+              <th className="p-4 font-semibold text-gray-600">Stok</th>
+              <th className="p-4 font-semibold text-gray-600">Modal</th>
+              <th className="p-4 font-semibold text-gray-600">Jual</th>
+              <th className="p-4 font-semibold text-gray-600">Grosir</th>
+              <th className="p-4"></th>
+            </tr>
+          </thead>
+          <tbody>
+            {products.map(p => (
+              <tr key={p.id} className="border-b border-gray-50 hover:bg-gray-50">
+                <td className="p-4 text-sm text-gray-500">{p.sku}</td>
+                <td className="p-4 font-medium">{p.name}</td>
+                <td className="p-4">
+                  <span className={`px-2 py-1 rounded text-sm font-medium ${p.stock < 10 ? 'bg-red-100 text-red-700' : 'bg-emerald-100 text-emerald-700'}`}>
+                    {p.stock}
+                  </span>
+                </td>
+                <td className="p-4 text-gray-500">{formatRp(p.cost)}</td>
+                <td className="p-4 text-blue-600 font-semibold">{formatRp(p.price)}</td>
+                <td className="p-4 text-sm text-gray-500">
+                  {p.wholesaleQty > 0 ? `Min ${p.wholesaleQty}: ${formatRp(p.wholesalePrice)}` : '-'}
+                </td>
+                <td className="p-4 text-right">
+                  <button onClick={() => setProducts(products.filter(item => item.id !== p.id))} className="text-red-400 hover:text-red-600"><Trash2 size={18}/></button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+
+  const renderCustomers = () => (
+    <div className="space-y-6">
+      <h2 className="text-2xl font-bold text-gray-800 flex items-center gap-2"><Users className="text-blue-600" /> Pelanggan & Catatan Hutang</h2>
+      
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        {/* Tambah Pelanggan */}
+        <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
+          <h3 className="font-bold mb-4 flex items-center gap-2"><Plus size={18}/> Tambah Pelanggan</h3>
+          <form onSubmit={(e) => {
+            e.preventDefault();
+            const fd = new FormData(e.target);
+            setCustomers([...customers, { id: Date.now(), name: fd.get('name'), phone: fd.get('phone'), debt: 0 }]);
+            e.target.reset();
+          }} className="space-y-4">
+            <input name="name" placeholder="Nama Pelanggan" required className="w-full border p-2 rounded-lg" />
+            <input name="phone" placeholder="No. WhatsApp" className="w-full border p-2 rounded-lg" />
+            <button type="submit" className="w-full bg-blue-600 text-white py-2 rounded-lg font-medium">Simpan Pelanggan</button>
+          </form>
+        </div>
+
+        {/* Daftar Pelanggan */}
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+          <div className="p-4 bg-gray-50 border-b font-bold">Daftar Pelanggan</div>
+          <ul className="divide-y divide-gray-100 max-h-96 overflow-y-auto">
+            {customers.map(c => (
+              <li key={c.id} className="p-4 flex justify-between items-center hover:bg-gray-50">
+                <div>
+                  <h4 className="font-semibold">{c.name}</h4>
+                  <p className="text-xs text-gray-500">{c.phone}</p>
+                </div>
+                <div className="text-right flex items-center gap-4">
+                  {c.debt > 0 ? (
+                    <div>
+                      <p className="text-xs text-gray-500">Sisa Kasbon</p>
+                      <p className="text-rose-600 font-bold">{formatRp(c.debt)}</p>
+                    </div>
+                  ) : (
+                    <span className="text-xs bg-emerald-100 text-emerald-700 px-2 py-1 rounded">Lunas</span>
+                  )}
+                  {c.debt > 0 && (
+                    <button onClick={() => {
+                      const pay = prompt(`Masukkan nominal pembayaran hutang untuk ${c.name} (Max: ${c.debt}):`);
+                      if (pay && !isNaN(pay)) {
+                        setCustomers(customers.map(cust => cust.id === c.id ? { ...cust, debt: Math.max(0, cust.debt - Number(pay)) } : cust));
+                      }
+                    }} className="bg-emerald-500 text-white px-3 py-1 rounded text-sm hover:bg-emerald-600">Bayar</button>
+                  )}
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
+      </div>
+    </div>
+  );
+
+  const renderAnalytics = () => (
+    <div className="space-y-6">
+      <h2 className="text-2xl font-bold text-gray-800 flex items-center gap-2"><BarChart3 className="text-blue-600" /> Analisis WarungKu</h2>
+      
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
+          <p className="text-gray-500 text-sm font-medium mb-1">Total Omzet</p>
+          <h3 className="text-2xl font-bold text-gray-800">{formatRp(analytics.totalOmzet)}</h3>
+        </div>
+        <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
+          <p className="text-gray-500 text-sm font-medium mb-1">Laba Kotor</p>
+          <h3 className="text-2xl font-bold text-emerald-600">{formatRp(analytics.totalProfit)}</h3>
+        </div>
+        <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
+          <p className="text-gray-500 text-sm font-medium mb-1">Pengeluaran</p>
+          <h3 className="text-2xl font-bold text-rose-600">{formatRp(analytics.totalExpense)}</h3>
+        </div>
+        <div className="bg-white p-6 rounded-2xl border border-blue-100 bg-blue-50 shadow-sm">
+          <p className="text-blue-800 text-sm font-medium mb-1">Laba Bersih</p>
+          <h3 className="text-2xl font-bold text-blue-700">{formatRp(analytics.netProfit)}</h3>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        {/* Catat Pengeluaran */}
+        <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
+          <h3 className="font-bold mb-4 flex items-center gap-2 text-rose-600"><ArrowDownCircle size={18}/> Catat Pengeluaran Warung</h3>
+          <form onSubmit={(e) => {
+            e.preventDefault();
+            const fd = new FormData(e.target);
+            setExpenses([{ id: Date.now(), desc: fd.get('desc'), amount: Number(fd.get('amount')), date: new Date().toISOString() }, ...expenses]);
+            e.target.reset();
+          }} className="flex gap-2">
+            <input name="desc" placeholder="Keterangan (Makan, Listrik, dll)" required className="flex-[2] border p-2 rounded-lg text-sm" />
+            <input name="amount" type="number" placeholder="Rp" required className="flex-1 border p-2 rounded-lg text-sm" />
+            <button type="submit" className="bg-rose-500 text-white px-4 rounded-lg font-medium text-sm">Catat</button>
+          </form>
+          
+          <div className="mt-4 space-y-2">
+            {expenses.slice(0, 5).map(e => (
+              <div key={e.id} className="flex justify-between text-sm border-b pb-2">
+                <span className="text-gray-600">{e.desc}</span>
+                <span className="text-rose-600 font-semibold">-{formatRp(e.amount)}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Uang Mengendap / Piutang */}
+        <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
+          <h3 className="font-bold mb-4 flex items-center gap-2 text-orange-600"><Wallet size={18}/> Total Uang di Luar (Kasbon)</h3>
+          <h2 className="text-4xl font-black text-orange-500 mb-2">{formatRp(analytics.totalPiutang)}</h2>
+          <p className="text-sm text-gray-500">Segera tagih pelanggan dengan hutang terbanyak agar arus kas lancar.</p>
+        </div>
+      </div>
+    </div>
+  );
+
+  // --- RECEIPT MODAL ---
+  const renderReceiptModal = () => {
+    if (!receiptData) return null;
+    return (
+      <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+        <div className="bg-white rounded-2xl max-w-md w-full shadow-2xl overflow-hidden print:w-full print:shadow-none">
+          {/* Bagian ini akan dicetak */}
+          <div id="printable-receipt" className="p-6 bg-white text-gray-800">
+            <div className="text-center mb-6 border-b-2 border-dashed border-gray-200 pb-4">
+              <Store className="mx-auto mb-2 text-gray-800" size={32} />
+              <h2 className="text-2xl font-black">{storeInfo.name}</h2>
+              <p className="text-sm text-gray-500">{new Date(receiptData.date).toLocaleString('id-ID')}</p>
+              <p className="text-xs mt-1 bg-gray-100 inline-block px-2 py-1 rounded uppercase tracking-wider">{receiptData.id} • {receiptData.method}</p>
+            </div>
+            
+            <div className="space-y-3 mb-6">
+              {receiptData.items.map(item => (
+                <div key={item.id} className="flex justify-between text-sm">
+                  <div>
+                    <p className="font-semibold">{item.name}</p>
+                    <p className="text-gray-500">{item.qty} x {formatRp(item.activePrice)}</p>
+                  </div>
+                  <div className="font-bold">{formatRp(item.qty * item.activePrice)}</div>
+                </div>
+              ))}
+            </div>
+
+            <div className="border-t-2 border-dashed border-gray-200 pt-4 space-y-2 text-sm">
+              <div className="flex justify-between"><span>Subtotal</span><span>{formatRp(receiptData.subtotal)}</span></div>
+              {receiptData.discount > 0 && <div className="flex justify-between text-rose-500"><span>Diskon</span><span>-{formatRp(receiptData.discount)}</span></div>}
+              <div className="flex justify-between text-lg font-black pt-2"><span>TOTAL</span><span>{formatRp(receiptData.total)}</span></div>
+            </div>
+
+            {receiptData.customerId && (
+              <div className="mt-4 p-3 bg-gray-50 rounded-lg text-center text-sm">
+                Pelanggan: <span className="font-bold">{customers.find(c => c.id === receiptData.customerId)?.name}</span>
+                {receiptData.method === 'kasbon' && <p className="text-rose-600 font-bold mt-1">Status: KASBON (BELUM LUNAS)</p>}
+              </div>
+            )}
+
+            <div className="text-center mt-8 text-sm text-gray-500 italic">
+              {storeInfo.promo}
+            </div>
+          </div>
+
+          {/* Tombol Aksi (Tidak dicetak) */}
+          <div className="p-4 bg-gray-50 flex gap-3 print:hidden">
+            <button onClick={() => {
+              window.print();
+            }} className="flex-1 bg-gray-800 text-white py-3 rounded-xl font-bold flex items-center justify-center gap-2">
+              <Printer size={18}/> Cetak Struk
+            </button>
+            <button onClick={() => setReceiptData(null)} className="flex-1 bg-blue-600 text-white py-3 rounded-xl font-bold flex items-center justify-center gap-2">
+              <CheckCircle size={18}/> Selesai
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  // --- MAIN LAYOUT ---
+  const navItems = [
+    { id: 'pos', icon: <ShoppingCart size={20}/>, label: 'Kasir (POS)' },
+    { id: 'products', icon: <Package size={20}/>, label: 'Produk' },
+    { id: 'customers', icon: <Users size={20}/>, label: 'Pelanggan' },
+    { id: 'analytics', icon: <TrendingUp size={20}/>, label: 'Analisis' },
+  ];
+
+  return (
+    <div className="min-h-screen bg-gray-100 flex flex-col md:flex-row font-sans">
+      {/* Styles for printing */}
+      <style>{`
+        @media print {
+          body * { visibility: hidden; }
+          #printable-receipt, #printable-receipt * { visibility: visible; }
+          #printable-receipt { position: absolute; left: 0; top: 0; width: 100%; max-width: 80mm; padding: 0; margin: 0; }
+        }
+      `}</style>
+
+      {/* Sidebar (Desktop) */}
+      <aside className="hidden md:flex flex-col w-64 bg-gray-900 text-white shadow-xl">
+        <div className="p-6 border-b border-gray-800 flex items-center gap-3">
+          <div className="bg-blue-600 p-2 rounded-lg"><Store size={24}/></div>
+          <div>
+            <h1 className="font-bold text-lg leading-tight">{storeInfo.name}</h1>
+            <p className="text-xs text-gray-400">Sistem POS Warung</p>
+          </div>
+        </div>
+        <nav className="flex-1 p-4 space-y-2">
+          {navItems.map(item => (
+            <button key={item.id} onClick={() => setActiveTab(item.id)} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === item.id ? 'bg-blue-600 text-white font-medium' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}`}>
+              {item.icon} {item.label}
+            </button>
+          ))}
+        </nav>
+      </aside>
+
+      {/* Main Content */}
+      <main className="flex-1 p-4 md:p-8 h-screen overflow-y-auto pb-24 md:pb-8">
+        {/* Mobile Header */}
+        <div className="md:hidden flex items-center gap-3 mb-6 bg-white p-4 rounded-2xl shadow-sm">
+          <div className="bg-blue-600 p-2 rounded-lg text-white"><Store size={24}/></div>
+          <h1 className="font-bold text-lg">{storeInfo.name}</h1>
+        </div>
+
+        {activeTab === 'pos' && renderPOS()}
+        {activeTab === 'products' && renderProducts()}
+        {activeTab === 'customers' && renderCustomers()}
+        {activeTab === 'analytics' && renderAnalytics()}
+      </main>
+
+      {/* Bottom Nav (Mobile) */}
+      <nav className="md:hidden fixed bottom-0 w-full bg-white border-t border-gray-200 flex justify-around p-3 z-40 pb-safe">
+        {navItems.map(item => (
+          <button key={item.id} onClick={() => setActiveTab(item.id)} className={`flex flex-col items-center gap-1 p-2 ${activeTab === item.id ? 'text-blue-600' : 'text-gray-400'}`}>
+            {item.icon}
+            <span className="text-[10px] font-medium">{item.label}</span>
+          </button>
+        ))}
+      </nav>
+
+      {/* Modals */}
+      {renderReceiptModal()}
+    </div>
+  );
+}
+
