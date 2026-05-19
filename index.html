@@ -18,18 +18,18 @@
             .no-print { display: none !important; }
         }
         
-        /* Smooth scrolling */
-        .scroll-smooth { scroll-behavior: smooth; }
-        
-        /* Hide scrollbar for cleaner UI */
+        /* Hilangkan scrollbar untuk tampilan yang lebih rapi */
         .no-scrollbar::-webkit-scrollbar { display: none; }
         .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+        
+        /* Animasi aman (Safe Area) untuk HP */
+        .pb-safe { padding-bottom: env(safe-area-inset-bottom); }
     </style>
 </head>
 <body class="bg-gray-100 text-gray-800 font-sans h-screen flex flex-col md:flex-row overflow-hidden">
 
     <!-- SIDEBAR (Desktop) -->
-    <aside class="hidden md:flex flex-col w-64 bg-gray-900 text-white shadow-xl h-full z-20">
+    <aside class="hidden md:flex flex-col w-64 bg-gray-900 text-white shadow-xl h-full z-20 relative">
         <div class="p-6 border-b border-gray-800 flex items-center gap-3">
             <div class="bg-blue-600 p-2 rounded-lg"><i class="fa-solid fa-store text-xl"></i></div>
             <div>
@@ -59,24 +59,41 @@
             <!-- HALAMAN KASIR (POS) -->
             <section id="sec-pos" class="h-full flex flex-col lg:flex-row gap-6">
                 <!-- Katalog Produk -->
-                <div class="flex-1 flex flex-col gap-4 h-full">
+                <div class="flex-1 flex flex-col gap-4 h-full relative">
                     <form onsubmit="handleBarcodeScan(event)" class="flex gap-2">
                         <div class="relative flex-1">
                             <i class="fa-solid fa-magnifying-glass absolute left-3 top-3.5 text-gray-400"></i>
-                            <input type="text" id="search-sku" placeholder="Scan Barcode (SKU) atau Cari Nama + Enter" class="w-full pl-10 pr-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-blue-500 outline-none shadow-sm">
+                            <input type="text" id="search-sku" placeholder="Scan Barcode / Nama..." class="w-full pl-10 pr-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-blue-500 outline-none shadow-sm text-sm md:text-base">
                         </div>
-                        <button type="submit" class="bg-blue-600 text-white px-6 rounded-xl hover:bg-blue-700 font-medium shadow-sm transition-all">Cari</button>
+                        <button type="submit" class="bg-blue-600 text-white px-4 md:px-6 rounded-xl hover:bg-blue-700 font-medium shadow-sm transition-all text-sm md:text-base">Cari</button>
                     </form>
-                    <div id="pos-product-grid" class="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-4 overflow-y-auto no-scrollbar pb-32 lg:pb-0 h-full content-start">
+                    
+                    <div id="pos-product-grid" class="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-3 md:gap-4 overflow-y-auto no-scrollbar pb-32 lg:pb-0 h-full content-start">
                         <!-- Render Produk JS -->
                     </div>
+
+                    <!-- Tombol Melayang Keranjang (Hanya HP) -->
+                    <button id="fab-cart" onclick="openCartModal()" class="lg:hidden fixed bottom-20 right-4 bg-blue-600 text-white w-14 h-14 rounded-full shadow-2xl z-30 hidden items-center justify-center transition-transform hover:scale-105 active:scale-95">
+                        <i class="fa-solid fa-cart-shopping text-xl"></i>
+                        <span id="fab-badge" class="absolute -top-1 -right-1 bg-rose-500 text-white text-[10px] md:text-xs font-bold w-6 h-6 flex items-center justify-center rounded-full border-2 border-white">0</span>
+                    </button>
                 </div>
 
-                <!-- Keranjang -->
-                <div class="w-full lg:w-96 bg-white rounded-2xl shadow-lg border border-gray-100 flex flex-col lg:h-full lg:max-h-full max-h-[60vh]">
-                    <div class="p-4 border-b border-gray-100 flex justify-between items-center bg-gray-50 rounded-t-2xl">
-                        <h2 class="font-bold text-lg"><i class="fa-solid fa-cart-shopping mr-2"></i> Keranjang</h2>
-                        <span id="cart-count" class="bg-blue-100 text-blue-700 px-3 py-1 rounded-full text-sm font-semibold">0 Item</span>
+                <!-- Overlay Gelap untuk HP saat keranjang terbuka -->
+                <div id="cart-overlay" onclick="closeCartModal()" class="fixed inset-0 bg-black/50 z-40 hidden lg:hidden transition-opacity"></div>
+
+                <!-- Keranjang (Panel Laci di HP, Kolom Samping di Desktop) -->
+                <div id="cart-panel" class="w-full lg:w-96 bg-white rounded-t-3xl lg:rounded-2xl shadow-2xl lg:shadow-lg border border-gray-100 flex flex-col fixed lg:relative bottom-0 left-0 right-0 z-50 lg:z-auto transform translate-y-full lg:translate-y-0 transition-transform duration-300 ease-in-out h-[85vh] lg:h-full lg:max-h-full">
+                    
+                    <div class="p-4 border-b border-gray-100 flex justify-between items-center bg-gray-50 rounded-t-3xl lg:rounded-t-2xl">
+                        <h2 class="font-bold text-lg flex items-center gap-2"><i class="fa-solid fa-cart-shopping"></i> Keranjang</h2>
+                        <div class="flex items-center gap-3">
+                            <span id="cart-count" class="bg-blue-100 text-blue-700 px-3 py-1 rounded-full text-sm font-semibold">0 Item</span>
+                            <!-- Tombol Tutup (Hanya HP) -->
+                            <button onclick="closeCartModal()" class="lg:hidden w-8 h-8 flex items-center justify-center bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-full transition-colors">
+                                <i class="fa-solid fa-chevron-down"></i>
+                            </button>
+                        </div>
                     </div>
                     
                     <div id="cart-items" class="flex-1 overflow-y-auto p-4 space-y-4">
@@ -87,21 +104,21 @@
                         </div>
                     </div>
 
-                    <div class="p-4 border-t border-gray-100 bg-gray-50 space-y-4 rounded-b-2xl">
+                    <div class="p-4 border-t border-gray-100 bg-gray-50 space-y-4 lg:rounded-b-2xl pb-safe">
                         <div class="flex gap-2">
                             <div class="flex-1">
                                 <label class="text-xs text-gray-500 font-medium">Diskon (%)</label>
                                 <input type="number" id="cart-discount" value="0" min="0" max="100" onchange="updateCartUI()" class="w-full p-2 text-sm border rounded-lg mt-1 outline-none">
                             </div>
                             <div class="flex-[2]">
-                                <label class="text-xs text-gray-500 font-medium">Pelanggan (Hutang/Umum)</label>
-                                <select id="cart-customer" class="w-full p-2 text-sm border rounded-lg mt-1 outline-none">
+                                <label class="text-xs text-gray-500 font-medium">Pelanggan</label>
+                                <select id="cart-customer" class="w-full p-2 text-sm border rounded-lg mt-1 outline-none bg-white">
                                     <!-- Render Pelanggan JS -->
                                 </select>
                             </div>
                         </div>
 
-                        <div class="space-y-2 text-sm">
+                        <div class="space-y-1 text-sm">
                             <div class="flex justify-between"><span class="text-gray-500">Subtotal</span><span id="txt-subtotal">Rp 0</span></div>
                             <div id="div-discount" class="flex justify-between text-rose-500 hidden"><span>Diskon</span><span id="txt-discount">-Rp 0</span></div>
                             <div class="flex justify-between font-bold text-lg pt-2 border-t border-gray-200">
@@ -109,22 +126,23 @@
                             </div>
                         </div>
 
-                        <div class="grid grid-cols-3 gap-2 mt-2">
-                            <button onclick="setPaymentMethod('cash')" id="pay-cash" class="pay-btn py-2 rounded-lg text-sm font-semibold flex flex-col items-center gap-1 bg-emerald-500 text-white"><i class="fa-solid fa-money-bill"></i> Cash</button>
-                            <button onclick="setPaymentMethod('qris')" id="pay-qris" class="pay-btn py-2 rounded-lg text-sm font-semibold flex flex-col items-center gap-1 bg-gray-200 text-gray-600"><i class="fa-solid fa-qrcode"></i> QRIS</button>
-                            <button onclick="setPaymentMethod('kasbon')" id="pay-kasbon" class="pay-btn py-2 rounded-lg text-sm font-semibold flex flex-col items-center gap-1 bg-gray-200 text-gray-600"><i class="fa-solid fa-wallet"></i> Kasbon</button>
+                        <div class="grid grid-cols-3 gap-2 mt-1">
+                            <button onclick="setPaymentMethod('cash')" id="pay-cash" class="pay-btn py-2 rounded-lg text-sm font-semibold flex flex-col items-center gap-1 bg-emerald-500 text-white transition-colors"><i class="fa-solid fa-money-bill"></i> Cash</button>
+                            <button onclick="setPaymentMethod('qris')" id="pay-qris" class="pay-btn py-2 rounded-lg text-sm font-semibold flex flex-col items-center gap-1 bg-gray-200 text-gray-600 transition-colors"><i class="fa-solid fa-qrcode"></i> QRIS</button>
+                            <button onclick="setPaymentMethod('kasbon')" id="pay-kasbon" class="pay-btn py-2 rounded-lg text-sm font-semibold flex flex-col items-center gap-1 bg-gray-200 text-gray-600 transition-colors"><i class="fa-solid fa-wallet"></i> Kasbon</button>
                         </div>
-                        <button onclick="handleCheckout()" id="btn-checkout" disabled class="w-full py-3 bg-gray-400 text-white font-bold rounded-xl shadow-md transition-all text-lg mt-2">
+                        <button onclick="handleCheckout()" id="btn-checkout" disabled class="w-full py-3 bg-gray-400 text-white font-bold rounded-xl shadow-md transition-all text-lg cursor-not-allowed">
                             Bayar Sekarang
                         </button>
                     </div>
                 </div>
             </section>
 
+            <!-- HALAMAN LAINNYA (Produk, Pelanggan, dsb) tetap sama seperti sebelumnya... -->
             <!-- HALAMAN PRODUK -->
             <section id="sec-products" class="hidden space-y-6">
                 <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-                    <h2 class="text-2xl font-bold text-gray-800"><i class="fa-solid fa-box text-blue-600 mr-2"></i> Kelola Produk & Stok</h2>
+                    <h2 class="text-2xl font-bold text-gray-800"><i class="fa-solid fa-box text-blue-600 mr-2"></i> Kelola Produk</h2>
                     <div class="flex gap-2 w-full md:w-auto">
                         <button onclick="shareCatalogWA()" class="flex-1 md:flex-none bg-emerald-100 text-emerald-700 px-4 py-2 rounded-xl flex items-center justify-center gap-2 hover:bg-emerald-200 font-medium">
                             <i class="fa-brands fa-whatsapp"></i> Katalog WA
@@ -159,10 +177,8 @@
                     <table class="w-full text-left border-collapse min-w-[600px]">
                         <thead>
                             <tr class="bg-gray-50 border-b">
-                                <th class="p-4 font-semibold text-gray-600 text-sm">SKU</th>
                                 <th class="p-4 font-semibold text-gray-600 text-sm">Nama Produk</th>
                                 <th class="p-4 font-semibold text-gray-600 text-sm">Stok</th>
-                                <th class="p-4 font-semibold text-gray-600 text-sm">Modal</th>
                                 <th class="p-4 font-semibold text-gray-600 text-sm">Jual</th>
                                 <th class="p-4 font-semibold text-gray-600 text-sm">Grosir</th>
                                 <th class="p-4"></th>
@@ -184,7 +200,7 @@
                         <form onsubmit="handleAddCustomer(event)" class="space-y-4">
                             <input id="cust-name" placeholder="Nama Pelanggan" required class="w-full border p-2 rounded-lg outline-none">
                             <input id="cust-phone" placeholder="No. WhatsApp" class="w-full border p-2 rounded-lg outline-none">
-                            <button type="submit" class="w-full bg-blue-600 text-white py-2 rounded-lg font-medium">Simpan Pelanggan</button>
+                            <button type="submit" class="w-full bg-blue-600 text-white py-2 rounded-lg font-medium">Simpan</button>
                         </form>
                     </div>
                     <div class="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
@@ -199,8 +215,8 @@
             <!-- HALAMAN ANALISIS -->
             <section id="sec-analytics" class="hidden space-y-6">
                 <div class="flex justify-between items-center flex-wrap gap-2">
-                    <h2 class="text-2xl font-bold text-gray-800"><i class="fa-solid fa-chart-line text-blue-600 mr-2"></i> Analisis Warung</h2>
-                    <button onclick="resetTransactions()" class="text-red-500 text-sm hover:bg-red-50 px-3 py-1 rounded border border-red-200">Reset Riwayat Harian</button>
+                    <h2 class="text-2xl font-bold text-gray-800"><i class="fa-solid fa-chart-line text-blue-600 mr-2"></i> Analisis</h2>
+                    <button onclick="resetTransactions()" class="text-red-500 text-sm hover:bg-red-50 px-3 py-1 rounded border border-red-200">Reset Riwayat</button>
                 </div>
                 
                 <div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
@@ -224,7 +240,7 @@
                 
                 <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
                     <div class="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
-                        <h3 class="font-bold mb-4 flex items-center gap-2 text-rose-600"><i class="fa-solid fa-arrow-down"></i> Catat Pengeluaran Warung</h3>
+                        <h3 class="font-bold mb-4 flex items-center gap-2 text-rose-600"><i class="fa-solid fa-arrow-down"></i> Catat Pengeluaran</h3>
                         <form onsubmit="handleAddExpense(event)" class="flex flex-col sm:flex-row gap-2">
                             <input id="exp-desc" placeholder="Keterangan (Contoh: Listrik)" required class="flex-[2] border p-2 rounded-lg text-sm outline-none">
                             <input id="exp-amount" type="number" placeholder="Rp" required class="flex-1 border p-2 rounded-lg text-sm outline-none">
@@ -255,12 +271,11 @@
                             <label class="block text-sm font-medium text-gray-700 mb-1">Pesan Struk / Promo</label>
                             <textarea id="set-promo" rows="3" class="w-full border p-2 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"></textarea>
                         </div>
-                        <button type="submit" class="bg-blue-600 text-white px-6 py-2 rounded-lg font-medium">Simpan Perubahan</button>
+                        <button type="submit" class="bg-blue-600 text-white px-6 py-2 rounded-lg font-medium">Simpan</button>
                     </form>
                 </div>
                 <div class="bg-red-50 p-6 rounded-2xl border border-red-200 mt-6">
                     <h3 class="font-bold text-red-700 mb-2">Zona Bahaya (Hard Reset)</h3>
-                    <p class="text-sm text-red-600 mb-4">Aksi ini menghapus seluruh data Produk, Pelanggan, dan Riwayat. Aplikasi kembali ke setelan awal.</p>
                     <button onclick="hardReset()" class="bg-red-600 text-white px-4 py-2 rounded-lg font-medium">Hapus Semua Data Aplikasi</button>
                 </div>
             </section>
@@ -268,7 +283,7 @@
     </main>
 
     <!-- BOTTOM NAV (Mobile) -->
-    <nav class="md:hidden fixed bottom-0 w-full bg-white border-t border-gray-200 flex justify-around p-2 z-40">
+    <nav class="md:hidden fixed bottom-0 w-full bg-white border-t border-gray-200 flex justify-around p-2 z-40 pb-safe">
         <button onclick="switchTab('pos')" id="mob-pos" class="mob-btn flex flex-col items-center gap-1 p-2 text-blue-600"><i class="fa-solid fa-cart-shopping text-lg"></i><span class="text-[10px] font-medium">Kasir</span></button>
         <button onclick="switchTab('products')" id="mob-products" class="mob-btn flex flex-col items-center gap-1 p-2 text-gray-400"><i class="fa-solid fa-box text-lg"></i><span class="text-[10px] font-medium">Produk</span></button>
         <button onclick="switchTab('customers')" id="mob-customers" class="mob-btn flex flex-col items-center gap-1 p-2 text-gray-400"><i class="fa-solid fa-users text-lg"></i><span class="text-[10px] font-medium">Pelanggan</span></button>
@@ -340,35 +355,23 @@
             localStorage.setItem('warungku_transactions', JSON.stringify(transactions));
             localStorage.setItem('warungku_expenses', JSON.stringify(expenses));
             localStorage.setItem('warungku_storeinfo', JSON.stringify(storeInfo));
-            updateAnalyticsUI(); // Update dashboard anytime data changes
+            updateAnalyticsUI(); 
         };
 
         // --- NAVIGATION ---
         const sections = ['pos', 'products', 'customers', 'analytics', 'settings'];
         function switchTab(tabId) {
-            // Hide all, reset buttons
             sections.forEach(s => {
                 document.getElementById(`sec-${s}`).classList.add('hidden');
-                
-                // Desktop Nav Update
-                const dBtn = document.getElementById(`tab-${s}`);
-                dBtn.className = "nav-btn w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all text-gray-400 hover:bg-gray-800 hover:text-white";
-                
-                // Mobile Nav Update
-                const mBtn = document.getElementById(`mob-${s}`);
-                mBtn.className = "mob-btn flex flex-col items-center gap-1 p-2 text-gray-400";
+                document.getElementById(`tab-${s}`).className = "nav-btn w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all text-gray-400 hover:bg-gray-800 hover:text-white";
+                document.getElementById(`mob-${s}`).className = "mob-btn flex flex-col items-center gap-1 p-2 text-gray-400";
             });
 
-            // Show Active
             document.getElementById(`sec-${tabId}`).classList.remove('hidden');
+            document.getElementById(`tab-${tabId}`).className = "nav-btn w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all bg-blue-600 text-white font-medium";
+            document.getElementById(`mob-${tabId}`).className = "mob-btn flex flex-col items-center gap-1 p-2 text-blue-600";
             
-            // Active Desktop
-            const activeDBtn = document.getElementById(`tab-${tabId}`);
-            activeDBtn.className = "nav-btn w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all bg-blue-600 text-white font-medium";
-            
-            // Active Mobile
-            const activeMBtn = document.getElementById(`mob-${tabId}`);
-            activeMBtn.className = "mob-btn flex flex-col items-center gap-1 p-2 text-blue-600";
+            closeCartModal(); // Tutup keranjang jika pindah tab
         }
 
         // --- INITIALIZATION ---
@@ -386,6 +389,22 @@
             updateAnalyticsUI();
         }
 
+        // ================= CART MODAL (MOBILE) =================
+        function openCartModal() {
+            // Hapus class translate-y-full agar panel muncul dari bawah
+            document.getElementById('cart-panel').classList.remove('translate-y-full');
+            // Tampilkan background overlay gelap
+            document.getElementById('cart-overlay').classList.remove('hidden');
+        }
+
+        function closeCartModal() {
+            // Kembalikan class translate-y-full agar panel bersembunyi
+            document.getElementById('cart-panel').classList.add('translate-y-full');
+            // Sembunyikan background overlay gelap
+            document.getElementById('cart-overlay').classList.add('hidden');
+        }
+
+
         // ================= POS LOGIC =================
         function getActivePrice(p, qty) {
             return (p.wholesaleQty > 0 && qty >= p.wholesaleQty) ? p.wholesalePrice : p.price;
@@ -400,13 +419,12 @@
             filtered.forEach(p => {
                 const outOfStock = p.stock <= 0;
                 grid.innerHTML += `
-                    <div onclick="${outOfStock ? '' : `addToCart(${p.id})`}" class="bg-white p-4 rounded-2xl shadow-sm border ${outOfStock ? 'border-red-200 opacity-60' : 'border-gray-100 hover:border-blue-400 cursor-pointer'} transition-all">
-                        <div class="h-16 bg-gray-50 rounded-lg flex items-center justify-center mb-3">
-                            <i class="fa-solid fa-box text-gray-300 text-2xl"></i>
+                    <div onclick="${outOfStock ? '' : `addToCart(${p.id})`}" class="bg-white p-3 md:p-4 rounded-2xl shadow-sm border ${outOfStock ? 'border-red-200 opacity-60' : 'border-gray-100 hover:border-blue-400 cursor-pointer'} transition-all flex flex-col h-full">
+                        <div class="flex-1">
+                            <h3 class="font-semibold text-gray-800 line-clamp-2 text-xs md:text-sm mb-1">${p.name}</h3>
+                            <p class="text-blue-600 font-bold text-sm md:text-base">${formatRp(p.price)}</p>
                         </div>
-                        <h3 class="font-semibold text-gray-800 line-clamp-2 text-xs md:text-sm h-10">${p.name}</h3>
-                        <p class="text-blue-600 font-bold mt-1 text-sm md:text-base">${formatRp(p.price)}</p>
-                        <div class="flex justify-between items-center mt-2 text-[10px] md:text-xs">
+                        <div class="flex justify-between items-center mt-3 text-[10px] md:text-xs">
                             <span class="text-gray-500">Stok: ${p.stock}</span>
                             ${p.wholesaleQty > 0 ? `<span class="bg-orange-100 text-orange-700 px-1 py-0.5 rounded">Grosir</span>` : ''}
                         </div>
@@ -419,10 +437,13 @@
             e.preventDefault();
             const val = document.getElementById('search-sku').value;
             const p = products.find(prod => prod.sku === val || prod.name.toLowerCase().includes(val.toLowerCase()));
-            if (p) addToCart(p.id);
-            else alert('Produk tidak ditemukan!');
+            if (p) {
+                addToCart(p.id);
+            } else {
+                alert('Produk tidak ditemukan!');
+            }
             document.getElementById('search-sku').value = '';
-            renderPOSProducts(); // reset grid
+            renderPOSProducts();
         }
 
         document.getElementById('search-sku').addEventListener('input', (e) => {
@@ -441,7 +462,11 @@
             } else {
                 cart.push({ ...p, qty: 1, activePrice: getActivePrice(p, 1) });
             }
+            
             updateCartUI();
+            
+            // Otomatis buka panel keranjang (pop-up) di layar HP setelah produk di klik
+            openCartModal(); 
         }
 
         function changeQty(id, delta) {
@@ -457,13 +482,18 @@
             }
             if(item) item.activePrice = getActivePrice(p, item.qty);
             updateCartUI();
+
+            // Jika keranjang kosong setelah dikurangi, otomatis tutup panel (di HP)
+            if(cart.length === 0) {
+                closeCartModal();
+            }
         }
 
         function setPaymentMethod(method) {
             paymentMethod = method;
             ['cash', 'qris', 'kasbon'].forEach(m => {
                 const btn = document.getElementById(`pay-${m}`);
-                btn.className = `pay-btn py-2 rounded-lg text-sm font-semibold flex flex-col items-center gap-1 ${m === method ? (m==='cash'?'bg-emerald-500 text-white':m==='qris'?'bg-blue-500 text-white':'bg-rose-500 text-white') : 'bg-gray-200 text-gray-600'}`;
+                btn.className = `pay-btn py-2 rounded-lg text-sm font-semibold flex flex-col items-center gap-1 transition-colors ${m === method ? (m==='cash'?'bg-emerald-500 text-white':m==='qris'?'bg-blue-500 text-white':'bg-rose-500 text-white') : 'bg-gray-200 text-gray-600'}`;
             });
         }
 
@@ -471,10 +501,21 @@
             const container = document.getElementById('cart-items');
             document.getElementById('cart-count').innerText = `${cart.length} Item`;
             
+            // Update Floating Button di Mobile
+            const fab = document.getElementById('fab-cart');
+            if(cart.length > 0) {
+                fab.classList.remove('hidden');
+                fab.classList.add('flex');
+                document.getElementById('fab-badge').innerText = cart.length;
+            } else {
+                fab.classList.add('hidden');
+                fab.classList.remove('flex');
+            }
+
             if (cart.length === 0) {
                 container.innerHTML = `<div class="h-full flex flex-col items-center justify-center text-gray-400 opacity-50"><i class="fa-solid fa-cart-shopping text-4xl mb-4"></i><p>Keranjang kosong</p></div>`;
                 document.getElementById('btn-checkout').disabled = true;
-                document.getElementById('btn-checkout').className = "w-full py-3 bg-gray-400 text-white font-bold rounded-xl shadow-md transition-all text-lg mt-2 cursor-not-allowed";
+                document.getElementById('btn-checkout').className = "w-full py-3 bg-gray-400 text-white font-bold rounded-xl shadow-md transition-all text-lg cursor-not-allowed";
             } else {
                 container.innerHTML = cart.map(item => `
                     <div class="flex justify-between items-center pb-4 border-b border-gray-50">
@@ -484,17 +525,17 @@
                             ${item.activePrice < item.price ? `<span class="text-[10px] bg-orange-100 text-orange-600 px-1 rounded">Grosir</span>` : ''}
                         </div>
                         <div class="flex items-center gap-3">
-                            <button onclick="changeQty(${item.id}, -1)" class="p-1 rounded-full bg-gray-100 hover:bg-gray-200"><i class="fa-solid fa-minus text-xs"></i></button>
+                            <button onclick="changeQty(${item.id}, -1)" class="w-7 h-7 flex items-center justify-center rounded-full bg-gray-100 hover:bg-gray-200"><i class="fa-solid fa-minus text-xs"></i></button>
                             <span class="font-semibold w-6 text-center text-sm">${item.qty}</span>
-                            <button onclick="changeQty(${item.id}, 1)" class="p-1 rounded-full bg-gray-100 hover:bg-gray-200"><i class="fa-solid fa-plus text-xs"></i></button>
+                            <button onclick="changeQty(${item.id}, 1)" class="w-7 h-7 flex items-center justify-center rounded-full bg-gray-100 hover:bg-gray-200"><i class="fa-solid fa-plus text-xs"></i></button>
                         </div>
                     </div>
                 `).join('');
                 document.getElementById('btn-checkout').disabled = false;
-                document.getElementById('btn-checkout').className = "w-full py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl shadow-md transition-all text-lg mt-2";
+                document.getElementById('btn-checkout').className = "w-full py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl shadow-md transition-all text-lg";
             }
 
-            // Math
+            // Hitung Math
             const subtotal = cart.reduce((sum, item) => sum + (item.activePrice * item.qty), 0);
             const discPercent = Number(document.getElementById('cart-discount').value) || 0;
             const discount = (subtotal * discPercent) / 100;
@@ -544,12 +585,14 @@
             // Add Debt
             if(paymentMethod === 'kasbon') {
                 customers = customers.map(c => c.id == customerId ? { ...c, debt: c.debt + total } : c);
-                renderCustomerList(); // Update UI
+                renderCustomerList(); 
             }
 
             transactions.unshift(trx);
             saveData();
             
+            // Tutup Keranjang HP dan Tampilkan Struk
+            closeCartModal();
             showReceipt(trx);
 
             // Reset
@@ -558,11 +601,12 @@
             document.getElementById('cart-customer').value = "";
             setPaymentMethod('cash');
             updateCartUI();
-            renderPOSProducts(); // Update stock UI
+            renderPOSProducts();
             renderProductTable();
         }
 
         // ================= RECEIPT =================
+        // ... (Kode receipt, produk, pelanggan, analisis tetap sama persis seperti sebelumnya) ...
         function showReceipt(trx) {
             document.getElementById('receipt-modal').classList.remove('hidden');
             document.getElementById('receipt-modal').classList.add('flex');
@@ -594,7 +638,7 @@
             if(trx.customerId) {
                 const c = customers.find(x => x.id == trx.customerId);
                 custBox.classList.remove('hidden');
-                custBox.innerHTML = `Pelanggan: <span class="font-bold">${c ? c.name : 'Unknown'}</span>
+                custBox.innerHTML = `Pelanggan: <span class="font-bold">${c ? c.name : 'Umum'}</span>
                     ${trx.method === 'kasbon' ? '<p class="text-rose-600 font-bold mt-1 text-xs border border-rose-200 bg-rose-50 inline-block px-2 py-0.5 rounded">STATUS: KASBON / BELUM LUNAS</p>' : ''}`;
             } else {
                 custBox.classList.add('hidden');
@@ -608,10 +652,9 @@
             document.getElementById('receipt-modal').classList.remove('flex');
         }
 
-        // ================= PRODUCTS LOGIC =================
+        // ================= PRODUK =================
         function toggleAddProduct() {
-            const form = document.getElementById('form-add-product');
-            form.classList.toggle('hidden');
+            document.getElementById('form-add-product').classList.toggle('hidden');
         }
 
         function handleAddProduct(e) {
@@ -646,17 +689,18 @@
         function renderProductTable() {
             const tbody = document.getElementById('product-table-body');
             if(products.length === 0) {
-                tbody.innerHTML = `<tr><td colspan="7" class="p-8 text-center text-gray-500">Belum ada produk.</td></tr>`;
+                tbody.innerHTML = `<tr><td colspan="5" class="p-8 text-center text-gray-500">Belum ada produk.</td></tr>`;
                 return;
             }
             tbody.innerHTML = products.map(p => `
                 <tr class="border-b border-gray-50 hover:bg-gray-50">
-                    <td class="p-4 text-xs md:text-sm text-gray-500">${p.sku}</td>
-                    <td class="p-4 font-medium text-sm">${p.name}</td>
+                    <td class="p-4 font-medium text-sm">
+                        ${p.name}
+                        <br><span class="text-xs text-gray-400">SKU: ${p.sku} | Modal: ${formatRp(p.cost)}</span>
+                    </td>
                     <td class="p-4">
                         <span class="px-2 py-1 rounded text-xs font-medium ${p.stock < 10 ? 'bg-red-100 text-red-700' : 'bg-emerald-100 text-emerald-700'}">${p.stock}</span>
                     </td>
-                    <td class="p-4 text-gray-500 text-sm">${formatRp(p.cost)}</td>
                     <td class="p-4 text-blue-600 font-semibold text-sm">${formatRp(p.price)}</td>
                     <td class="p-4 text-xs text-gray-500">${p.wholesaleQty > 0 ? `Min ${p.wholesaleQty}:<br>${formatRp(p.wholesalePrice)}` : '-'}</td>
                     <td class="p-4 text-right">
@@ -674,7 +718,7 @@
             window.open(`https://wa.me/?text=${encodeURIComponent(text)}`);
         }
 
-        // ================= CUSTOMER LOGIC =================
+        // ================= PELANGGAN =================
         function handleAddCustomer(e) {
             e.preventDefault();
             customers.push({
@@ -727,7 +771,7 @@
                 customers.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
         }
 
-        // ================= ANALYTICS & EXPENSE =================
+        // ================= ANALISIS =================
         function handleAddExpense(e) {
             e.preventDefault();
             expenses.unshift({
@@ -800,3 +844,4 @@
     </script>
 </body>
 </html>
+
